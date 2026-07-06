@@ -1,0 +1,207 @@
+<Window x:Class="BasketballManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="篮球积分及球员信息综合管理系统"
+        Width="1180"
+        Height="760"
+        MinWidth="980"
+        MinHeight="640"
+        Closing="Window_Closing">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="Padding" Value="10,5" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="MinWidth" Value="120" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="MinWidth" Value="160" />
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <TabControl>
+            <TabItem Header="球员管理">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0">
+                        <TextBlock Text="姓名" />
+                        <TextBox x:Name="PlayerNameBox" />
+                        <TextBlock Text="学号" />
+                        <TextBox x:Name="StudentNumberBox" />
+                        <TextBlock Text="队伍" />
+                        <TextBox x:Name="PlayerTeamBox" />
+                        <TextBlock Text="备注" />
+                        <TextBox x:Name="PlayerNoteBox" Width="180" />
+                        <TextBlock Text="照片" />
+                        <TextBox x:Name="PhotoPathBox" Width="190" IsReadOnly="True" />
+                        <Button Content="选择照片" Click="SelectPhoto_Click" />
+                        <Button Content="新增/保存球员" Click="SavePlayer_Click" />
+                        <Button Content="新建球员" Click="NewPlayer_Click" />
+                        <Button Content="删除球员" Click="DeletePlayer_Click" />
+                    </WrapPanel>
+                    <Grid Grid.Row="1" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <WrapPanel Grid.Row="0" Grid.ColumnSpan="2">
+                            <TextBlock Text="搜索" />
+                            <TextBox x:Name="PlayerSearchBox" Width="220" TextChanged="PlayerSearchBox_TextChanged" />
+                            <TextBlock Text="自定义字段" />
+                            <TextBox x:Name="CustomFieldNameBox" Width="140" />
+                            <TextBlock Text="当前球员字段值" />
+                            <TextBox x:Name="CustomFieldValueBox" Width="180" />
+                            <Button Content="保存字段和值" Click="SaveCustomField_Click" />
+                        </WrapPanel>
+                        <DataGrid x:Name="PlayersGrid"
+                                  Grid.Row="1"
+                                  Grid.Column="0"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionChanged="PlayersGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="姓名" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="学号" Binding="{Binding StudentNumber}" Width="*" />
+                                <DataGridTextColumn Header="队伍" Binding="{Binding Team}" Width="*" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="2*" />
+                                <DataGridTextColumn Header="照片路径" Binding="{Binding PhotoPath}" Width="2*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid x:Name="CustomFieldsGrid"
+                                  Grid.Row="1"
+                                  Grid.Column="1"
+                                  Margin="8,0,0,0"
+                                  AutoGenerateColumns="True"
+                                  IsReadOnly="True" />
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="比赛准备">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0">
+                        <TextBlock Text="比赛名" />
+                        <TextBox x:Name="MatchNameBox" Width="180" />
+                        <TextBlock Text="主队" />
+                        <TextBox x:Name="HomeTeamBox" Width="140" Text="主队" />
+                        <TextBlock Text="客队" />
+                        <TextBox x:Name="AwayTeamBox" Width="140" Text="客队" />
+                        <TextBlock Text="每节秒数" />
+                        <TextBox x:Name="PeriodLengthBox" Width="80" Text="600" />
+                        <Button Content="创建比赛" Click="CreateMatch_Click" />
+                        <TextBlock Text="当前比赛" />
+                        <ComboBox x:Name="MatchCombo" DisplayMemberPath="DisplayName" SelectionChanged="MatchCombo_SelectionChanged" Width="280" />
+                    </WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,8,0,8">
+                        <TextBlock Text="球员" />
+                        <ComboBox x:Name="RosterPlayerCombo" DisplayMemberPath="DisplayName" Width="220" />
+                        <TextBlock Text="阵营" />
+                        <ComboBox x:Name="RosterSideCombo" Width="100" />
+                        <TextBlock Text="号码" />
+                        <TextBox x:Name="JerseyNumberBox" Width="70" />
+                        <CheckBox x:Name="StarterBox" Content="首发" Margin="8,4" VerticalAlignment="Center" />
+                        <Button Content="加入名单" Click="AddRoster_Click" />
+                    </WrapPanel>
+                    <DataGrid x:Name="RostersGrid"
+                              Grid.Row="2"
+                              AutoGenerateColumns="True"
+                              IsReadOnly="True" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="记分台">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <UniformGrid Grid.Row="0" Columns="4">
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
+                            <StackPanel>
+                                <TextBlock Text="倒计时" FontSize="16" />
+                                <TextBlock x:Name="TimerText" Text="10:00" FontSize="40" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
+                            <StackPanel>
+                                <TextBlock Text="比分" FontSize="16" />
+                                <TextBlock x:Name="ScoreText" Text="0 - 0" FontSize="40" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
+                            <StackPanel>
+                                <TextBlock Text="节次" FontSize="16" />
+                                <TextBlock x:Name="PeriodText" Text="第 1 节" FontSize="30" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
+                            <StackPanel>
+                                <TextBlock Text="犯规 / 暂停" FontSize="16" />
+                                <TextBlock x:Name="FoulTimeoutText" Text="0:0 / 0:0" FontSize="26" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+                    <WrapPanel Grid.Row="1" Margin="0,8">
+                        <Button Content="开始" Click="StartClock_Click" />
+                        <Button Content="暂停" Click="PauseClock_Click" />
+                        <Button Content="继续" Click="StartClock_Click" />
+                        <Button Content="重置本节" Click="ResetClock_Click" />
+                        <TextBlock Text="记录球员" />
+                        <ComboBox x:Name="ActivePlayerCombo" DisplayMemberPath="DisplayName" Width="240" />
+                        <Button Content="+1" Click="ScoreOne_Click" />
+                        <Button Content="+2" Click="ScoreTwo_Click" />
+                        <Button Content="+3" Click="ScoreThree_Click" />
+                        <Button Content="犯规" Click="Foul_Click" />
+                        <Button Content="篮板" Click="Rebound_Click" />
+                        <Button Content="助攻" Click="Assist_Click" />
+                        <Button Content="抢断" Click="Steal_Click" />
+                        <Button Content="盖帽" Click="Block_Click" />
+                        <Button Content="失误" Click="Turnover_Click" />
+                        <Button Content="申请暂停" Click="TimeoutRequest_Click" />
+                    </WrapPanel>
+                    <DataGrid x:Name="StatsGrid"
+                              Grid.Row="2"
+                              AutoGenerateColumns="True"
+                              IsReadOnly="True" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="比赛日志">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0">
+                        <Button Content="撤销上一条事件" Click="UndoLastEvent_Click" />
+                    </WrapPanel>
+                    <DataGrid x:Name="EventsGrid"
+                              Grid.Row="1"
+                              AutoGenerateColumns="True"
+                              IsReadOnly="True" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

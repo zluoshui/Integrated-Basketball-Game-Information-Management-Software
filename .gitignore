@@ -5,3 +5,5 @@ obj/
 *.suo
 *.pdb
 *.log
+*.tmp
+TestResults/

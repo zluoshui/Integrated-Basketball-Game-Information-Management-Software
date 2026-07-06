@@ -32,7 +32,54 @@ Questions to answer:
 
 <!-- Patterns that must always be used -->
 
-(To be filled by the team)
+### Scenario: Local Run And Publish Scripts
+
+#### 1. Scope / Trigger
+- Trigger: any `.bat`, PowerShell script, README command, or CI/local command used to build, run, self-check, or publish the desktop app.
+
+#### 2. Signatures
+- Build: `dotnet build .\BasketballManager.sln`
+- Run: `dotnet run --project .\src\BasketballManager\BasketballManager.csproj`
+- Self-check: `dotnet run --project .\src\BasketballManager\BasketballManager.csproj -- --self-check`
+- Publish: `dotnet publish .\src\BasketballManager\BasketballManager.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true`
+- Optional env: `DOTNET_EXE=<path to dotnet.exe>`
+
+#### 3. Contracts
+- Scripts must default to `dotnet` from `PATH`.
+- Scripts may honor `DOTNET_EXE` when a developer needs a custom SDK path.
+- Scripts and README commands must not hard-code personal absolute paths such as `D:\Programs\dotnet\dotnet.exe`.
+- Publish output must stay under ignored build folders such as `bin/` or `obj/`.
+
+#### 4. Validation & Error Matrix
+- `dotnet` missing and `DOTNET_EXE` unset -> show a plain error telling the user to install .NET 10 SDK or set `DOTNET_EXE`.
+- Build failure -> keep the command output visible; do not swallow errors.
+- Publish output outside ignored folders -> update `.gitignore` or output path before committing.
+
+#### 5. Good/Base/Bad Cases
+- Good: `DOTNET_EXE=D:\Programs\dotnet\dotnet.exe start_test_app.bat` works on a developer machine.
+- Base: `start_test_app.bat` works when .NET 10 SDK is on `PATH`.
+- Bad: `start_test_app.bat` always calls one developer's absolute SDK path.
+
+#### 6. Tests Required
+- Run `dotnet build .\BasketballManager.sln`.
+- Run `dotnet run --project .\src\BasketballManager\BasketballManager.csproj -- --self-check`.
+- Run the documented self-contained publish command before phase 0 acceptance.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+
+```bat
+set "DOTNET_EXE=D:\Programs\dotnet\dotnet.exe"
+"%DOTNET_EXE%" run --project src\BasketballManager\BasketballManager.csproj
+```
+
+Correct:
+
+```bat
+if "%DOTNET_EXE%"=="" set "DOTNET_EXE=dotnet"
+"%DOTNET_EXE%" run --project "%~dp0src\BasketballManager\BasketballManager.csproj"
+```
 
 ---
 

@@ -10,9 +10,14 @@ public sealed class DataStore
         WriteIndented = true
     };
 
-    public string DataDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "BasketballManager");
+    public DataStore(string? dataDirectory = null)
+    {
+        DataDirectory = dataDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "BasketballManager");
+    }
+
+    public string DataDirectory { get; }
 
     public string DataPath => Path.Combine(DataDirectory, "basketball-data.json");
     public string PhotoDirectory => Path.Combine(DataDirectory, "photos");

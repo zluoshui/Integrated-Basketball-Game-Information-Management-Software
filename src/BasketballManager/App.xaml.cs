@@ -1,4 +1,5 @@
 using System.Windows;
+using System.IO;
 
 namespace BasketballManager;
 
@@ -40,6 +41,24 @@ internal static class SelfCheck
         data.Events.RemoveAt(data.Events.Count - 1);
         projection = Statistics.Compute(data, match);
         Assert(projection.HomeFouls == 0, "undo projection failed");
+
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"BasketballManagerSelfCheck-{Guid.NewGuid():N}");
+        var store = new DataStore(tempDirectory);
+        try
+        {
+            store.Save(data);
+            var loaded = store.Load();
+            Assert(loaded.Players.Count == 1, "data store player round-trip failed");
+            Assert(loaded.Events.Count == 1, "data store event round-trip failed");
+            Assert(Statistics.Compute(loaded, loaded.Matches[0]).HomeScore == 3, "loaded projection failed");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     private static void Assert(bool condition, string message)

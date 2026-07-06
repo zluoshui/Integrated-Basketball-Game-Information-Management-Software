@@ -1,9 +1,10 @@
 @echo off
 setlocal
-set "DOTNET_EXE=D:\Programs\dotnet\dotnet.exe"
-if not exist "%DOTNET_EXE%" (
-  echo Cannot find .NET SDK at %DOTNET_EXE%.
-  echo Please install .NET 10 SDK or update DOTNET_EXE in this file.
+if "%DOTNET_EXE%"=="" set "DOTNET_EXE=dotnet"
+"%DOTNET_EXE%" --info >nul 2>nul
+if errorlevel 1 (
+  echo Cannot find a usable .NET SDK.
+  echo Install .NET 10 SDK or set DOTNET_EXE to your dotnet.exe path.
   pause
   exit /b 1
 )

@@ -26,7 +26,7 @@ dotnet build .\BasketballManager.sln
 如果当前终端找不到 `dotnet`，先安装 .NET 10 SDK，或把命令中的 `dotnet` 替换为完整路径，例如：
 
 ```powershell
-& 'D:\Programs\dotnet\dotnet.exe' build .\BasketballManager.sln
+& '<dotnet.exe 完整路径>' build .\BasketballManager.sln
 ```
 
 ## 本地运行
@@ -69,13 +69,22 @@ src\BasketballManager\bin\Release\net10.0-windows\win-x64\publish\
 
 当前阶段使用：
 
-- `basketball-data.json`：业务数据。
+- `basketball.db`：SQLite 业务数据库。
+- `basketball-data.json`：旧版本 JSON 数据文件；首次打开时会自动导入到 SQLite。
 - `photos\`：导入后的球员照片。
+- `backups\`：手动备份目录。
 
-备份时复制整个 `%AppData%\BasketballManager\` 目录即可。正式数据底座将在后续阶段迁移到 SQLite。
+备份时可点击应用内“备份数据”，或复制整个 `%AppData%\BasketballManager\` 目录。
+
+## 阶段 1 状态
+
+- 已将主数据源迁移为 SQLite，并保留旧 JSON 自动导入。
+- 已建立 `schema_info` 版本表和初始业务表。
+- 球员资料支持状态、照片预览、学号唯一校验、删除确认、搜索、自定义字段和手动备份。
 
 ## 阶段 0 状态
 
+- 验证环境：.NET SDK 10.0.301；Windows 11（OS 版本 10.0.26200）。
 - 已提供解决方案入口、构建命令、运行命令、发布命令和自检命令。
 - 已去除测试启动脚本中的个人绝对路径依赖。
 - 已通过 `dotnet build`、`--self-check` 和 win-x64 self-contained 发布验证。

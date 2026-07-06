@@ -6,9 +6,9 @@ Create one WPF desktop project with three small layers:
 
 - UI: `MainWindow` with tabs for players, match setup, score table, and event log.
 - Domain: plain C# models for players, custom fields, teams, matches, rosters, events, clock state, and derived statistics.
-- Persistence: one local store service that loads/saves all data in one file under the user's application data directory.
+- Persistence: one local store service backed by SQLite under the user's application data directory.
 
-Use JSON persistence for this MVP if SQLite packages cannot be restored locally. Keep the storage service interface narrow so it can be replaced by SQLite later without changing the UI event flow.
+Legacy JSON remains only as a one-time import path when an existing JSON file is present and the SQLite database is empty.
 
 ## Data Flow
 
@@ -22,9 +22,10 @@ Use JSON persistence for this MVP if SQLite packages cannot be restored locally.
 
 - Target WPF on Windows x64.
 - Prefer .NET 10 when an SDK is available; fall back to the installed SDK target if the local machine lacks .NET 10.
-- Persist data in UTF-8 JSON with a `SchemaVersion` integer so future SQLite migration has one explicit source shape.
+- Persist data in `basketball.db` with a `schema_info` version table.
+- Store imported photos under `photos/`; store only relative photo paths in SQLite.
 
 ## Trade-offs
 
-- JSON persistence is the smallest offline store that works without NuGet or native SQLite binaries. It is acceptable for the first local MVP and keeps implementation unblockable on the current machine.
-- SQLite remains a follow-up once SDK/package restore is available.
+- SQLite is now the primary store. The app still keeps a simple in-memory `AppData` object and saves it transactionally, which is enough for the single-operator desktop scope.
+- Direct incremental repository methods can be added when data size or concurrency requires them.

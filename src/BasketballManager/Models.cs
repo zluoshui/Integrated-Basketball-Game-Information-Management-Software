@@ -20,7 +20,7 @@ public sealed class Player
     public string Team { get; set; } = "";
     public string Note { get; set; } = "";
     public string PhotoPath { get; set; } = "";
-    public string Status { get; set; } = "Active";
+    public string Status { get; set; } = "在队";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public string DisplayName => string.IsNullOrWhiteSpace(StudentNumber) ? Name : $"{Name} ({StudentNumber})";

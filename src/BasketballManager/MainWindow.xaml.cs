@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
@@ -17,6 +18,8 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _data = LoadData();
+        PlayerStatusCombo.ItemsSource = new[] { "在队", "离队", "停用" };
+        PlayerStatusCombo.SelectedItem = "在队";
         RosterSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         RosterSideCombo.SelectedItem = TeamSide.Home;
 
@@ -234,6 +237,7 @@ public partial class MainWindow : Window
         try
         {
             PhotoPathBox.Text = _store.ImportPhoto(dialog.FileName);
+            UpdatePhotoPreview();
         }
         catch (IOException ex)
         {
@@ -251,11 +255,20 @@ public partial class MainWindow : Window
         }
 
         var player = SelectedPlayer ?? new Player { CreatedAt = DateTime.UtcNow };
+        var studentNumber = StudentNumberBox.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(studentNumber)
+            && _data.Players.Any(item => item.Id != player.Id && item.StudentNumber.Equals(studentNumber, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show($"学号“{studentNumber}”已存在，请检查后再保存。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         player.Name = name;
-        player.StudentNumber = StudentNumberBox.Text.Trim();
+        player.StudentNumber = studentNumber;
         player.Team = PlayerTeamBox.Text.Trim();
         player.Note = PlayerNoteBox.Text.Trim();
         player.PhotoPath = PhotoPathBox.Text.Trim();
+        player.Status = PlayerStatusCombo.SelectedItem?.ToString() ?? "在队";
         player.UpdatedAt = DateTime.UtcNow;
 
         if (!_data.Players.Any(item => item.Id == player.Id))
@@ -280,6 +293,12 @@ public partial class MainWindow : Window
     {
         var player = SelectedPlayer;
         if (player is null)
+        {
+            return;
+        }
+
+        var result = MessageBox.Show($"确定删除球员“{player.DisplayName}”吗？该球员的自定义字段值和参赛名单也会删除。", "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
         {
             return;
         }
@@ -341,9 +360,11 @@ public partial class MainWindow : Window
         PlayerNameBox.Text = player.Name;
         StudentNumberBox.Text = player.StudentNumber;
         PlayerTeamBox.Text = player.Team;
+        PlayerStatusCombo.SelectedItem = player.Status;
         PlayerNoteBox.Text = player.Note;
         PhotoPathBox.Text = player.PhotoPath;
         RefreshCustomFields();
+        UpdatePhotoPreview();
     }
 
     private void PlayerSearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -356,9 +377,52 @@ public partial class MainWindow : Window
         PlayerNameBox.Text = "";
         StudentNumberBox.Text = "";
         PlayerTeamBox.Text = "";
+        PlayerStatusCombo.SelectedItem = "在队";
         PlayerNoteBox.Text = "";
         PhotoPathBox.Text = "";
         CustomFieldValueBox.Text = "";
+        UpdatePhotoPreview();
+    }
+
+    private void BackupData_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var backupPath = _store.Backup();
+            MessageBox.Show($"备份完成：{backupPath}", "备份成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"备份失败：{ex.Message}", "备份失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void UpdatePhotoPreview()
+    {
+        PhotoPreview.Source = null;
+        var relativePath = PhotoPathBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            PhotoPreviewStatus.Text = "无照片";
+            PhotoPreviewStatus.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var fullPath = _store.ResolvePath(relativePath);
+        if (!File.Exists(fullPath))
+        {
+            PhotoPreviewStatus.Text = "照片文件不存在";
+            PhotoPreviewStatus.Visibility = Visibility.Visible;
+            return;
+        }
+
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.UriSource = new Uri(fullPath, UriKind.Absolute);
+        image.EndInit();
+        PhotoPreview.Source = image;
+        PhotoPreviewStatus.Visibility = Visibility.Collapsed;
     }
 
     private void CreateMatch_Click(object sender, RoutedEventArgs e)

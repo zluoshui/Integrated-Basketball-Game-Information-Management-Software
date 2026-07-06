@@ -1,14 +1,14 @@
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true
-    };
+    private const int CurrentSchemaVersion = 1;
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
     {
@@ -18,28 +18,30 @@ public sealed class DataStore
     }
 
     public string DataDirectory { get; }
-
-    public string DataPath => Path.Combine(DataDirectory, "basketball-data.json");
+    public string DataPath => Path.Combine(DataDirectory, "basketball.db");
+    public string LegacyJsonPath => Path.Combine(DataDirectory, "basketball-data.json");
     public string PhotoDirectory => Path.Combine(DataDirectory, "photos");
 
     public AppData Load()
     {
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(PhotoDirectory);
-
-        if (!File.Exists(DataPath))
-        {
-            return new AppData();
-        }
+        EnsureDatabase();
 
         try
         {
-            var json = File.ReadAllText(DataPath);
-            return JsonSerializer.Deserialize<AppData>(json, JsonOptions) ?? new AppData();
+            var data = LoadFromDatabase();
+            if (IsEmpty(data) && File.Exists(LegacyJsonPath))
+            {
+                data = LoadLegacyJson();
+                Save(data);
+            }
+
+            return data;
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"无法读取本地数据文件: {DataPath}. {ex.Message}", ex);
+            throw new InvalidOperationException($"无法读取本地数据库: {DataPath}. {ex.Message}", ex);
         }
     }
 
@@ -47,15 +49,165 @@ public sealed class DataStore
     {
         Directory.CreateDirectory(DataDirectory);
         Directory.CreateDirectory(PhotoDirectory);
+        EnsureDatabase();
 
         try
         {
-            File.WriteAllText(DataPath, JsonSerializer.Serialize(data, JsonOptions));
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+            Execute(connection, transaction, "DELETE FROM match_events");
+            Execute(connection, transaction, "DELETE FROM match_rosters");
+            Execute(connection, transaction, "DELETE FROM matches");
+            Execute(connection, transaction, "DELETE FROM player_field_values");
+            Execute(connection, transaction, "DELETE FROM player_field_definitions");
+            Execute(connection, transaction, "DELETE FROM teams");
+            Execute(connection, transaction, "DELETE FROM players");
+
+            foreach (var player in data.Players)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO players (id, name, student_number, team, note, photo_path, status, created_at, updated_at)
+                    VALUES ($id, $name, $student_number, $team, $note, $photo_path, $status, $created_at, $updated_at)
+                    """,
+                    ("$id", player.Id.ToString()),
+                    ("$name", player.Name),
+                    ("$student_number", player.StudentNumber),
+                    ("$team", player.Team),
+                    ("$note", player.Note),
+                    ("$photo_path", player.PhotoPath),
+                    ("$status", player.Status),
+                    ("$created_at", ToText(player.CreatedAt)),
+                    ("$updated_at", ToText(player.UpdatedAt)));
+            }
+
+            foreach (var field in data.PlayerFields)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO player_field_definitions (id, name, field_type, is_required, display_order)
+                    VALUES ($id, $name, $field_type, $is_required, $display_order)
+                    """,
+                    ("$id", field.Id.ToString()),
+                    ("$name", field.Name),
+                    ("$field_type", field.FieldType),
+                    ("$is_required", field.IsRequired ? 1 : 0),
+                    ("$display_order", field.DisplayOrder));
+            }
+
+            foreach (var value in data.PlayerFieldValues)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO player_field_values (player_id, field_id, value)
+                    VALUES ($player_id, $field_id, $value)
+                    """,
+                    ("$player_id", value.PlayerId.ToString()),
+                    ("$field_id", value.FieldId.ToString()),
+                    ("$value", value.Value));
+            }
+
+            foreach (var team in data.Teams)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    "INSERT INTO teams (id, name, note) VALUES ($id, $name, $note)",
+                    ("$id", team.Id.ToString()),
+                    ("$name", team.Name),
+                    ("$note", team.Note));
+            }
+
+            foreach (var match in data.Matches)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO matches (id, name, home_team_name, away_team_name, period_length_seconds, current_period, remaining_seconds, is_clock_running, last_clock_update_utc, created_at, ended_at)
+                    VALUES ($id, $name, $home_team_name, $away_team_name, $period_length_seconds, $current_period, $remaining_seconds, $is_clock_running, $last_clock_update_utc, $created_at, $ended_at)
+                    """,
+                    ("$id", match.Id.ToString()),
+                    ("$name", match.Name),
+                    ("$home_team_name", match.HomeTeamName),
+                    ("$away_team_name", match.AwayTeamName),
+                    ("$period_length_seconds", match.PeriodLengthSeconds),
+                    ("$current_period", match.CurrentPeriod),
+                    ("$remaining_seconds", match.RemainingSeconds),
+                    ("$is_clock_running", match.IsClockRunning ? 1 : 0),
+                    ("$last_clock_update_utc", ToText(match.LastClockUpdateUtc)),
+                    ("$created_at", ToText(match.CreatedAt)),
+                    ("$ended_at", ToText(match.EndedAt)));
+            }
+
+            foreach (var roster in data.Rosters)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO match_rosters (id, match_id, player_id, side, jersey_number, is_starter)
+                    VALUES ($id, $match_id, $player_id, $side, $jersey_number, $is_starter)
+                    """,
+                    ("$id", roster.Id.ToString()),
+                    ("$match_id", roster.MatchId.ToString()),
+                    ("$player_id", roster.PlayerId.ToString()),
+                    ("$side", roster.Side.ToString()),
+                    ("$jersey_number", roster.JerseyNumber),
+                    ("$is_starter", roster.IsStarter ? 1 : 0));
+            }
+
+            foreach (var item in data.Events)
+            {
+                Execute(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO match_events (id, match_id, player_id, side, kind, points, period, clock_seconds_remaining, note, created_at)
+                    VALUES ($id, $match_id, $player_id, $side, $kind, $points, $period, $clock_seconds_remaining, $note, $created_at)
+                    """,
+                    ("$id", item.Id.ToString()),
+                    ("$match_id", item.MatchId.ToString()),
+                    ("$player_id", item.PlayerId.ToString()),
+                    ("$side", item.Side.ToString()),
+                    ("$kind", item.Kind.ToString()),
+                    ("$points", item.Points),
+                    ("$period", item.Period),
+                    ("$clock_seconds_remaining", item.ClockSecondsRemaining),
+                    ("$note", item.Note),
+                    ("$created_at", ToText(item.CreatedAt)));
+            }
+
+            transaction.Commit();
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"无法保存本地数据文件: {DataPath}. {ex.Message}", ex);
+            throw new InvalidOperationException($"无法保存本地数据库: {DataPath}. {ex.Message}", ex);
         }
+    }
+
+    public string Backup()
+    {
+        Directory.CreateDirectory(DataDirectory);
+        EnsureDatabase();
+
+        var backupDirectory = Path.Combine(DataDirectory, "backups", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(backupDirectory);
+
+        SqliteConnection.ClearAllPools();
+        File.Copy(DataPath, Path.Combine(backupDirectory, Path.GetFileName(DataPath)), overwrite: false);
+        if (Directory.Exists(PhotoDirectory))
+        {
+            CopyDirectory(PhotoDirectory, Path.Combine(backupDirectory, "photos"));
+        }
+
+        return backupDirectory;
     }
 
     public string ImportPhoto(string sourcePath)
@@ -74,5 +226,275 @@ public sealed class DataStore
         return string.IsNullOrWhiteSpace(relativePath)
             ? ""
             : Path.Combine(DataDirectory, relativePath);
+    }
+
+    private void EnsureDatabase()
+    {
+        using var connection = OpenConnection();
+        Execute(connection, null, "PRAGMA foreign_keys = ON");
+        Execute(connection, null, "CREATE TABLE IF NOT EXISTS schema_info (version INTEGER NOT NULL)");
+
+        var version = GetSchemaVersion(connection);
+        if (version == 0)
+        {
+            CreateSchema(connection);
+            Execute(connection, null, "INSERT INTO schema_info (version) VALUES ($version)", ("$version", CurrentSchemaVersion));
+        }
+    }
+
+    private AppData LoadFromDatabase()
+    {
+        using var connection = OpenConnection();
+        return new AppData
+        {
+            SchemaVersion = GetSchemaVersion(connection),
+            Players = Query(connection, "SELECT * FROM players ORDER BY name", reader => new Player
+            {
+                Id = ReadGuid(reader, "id"),
+                Name = ReadString(reader, "name"),
+                StudentNumber = ReadString(reader, "student_number"),
+                Team = ReadString(reader, "team"),
+                Note = ReadString(reader, "note"),
+                PhotoPath = ReadString(reader, "photo_path"),
+                Status = ReadString(reader, "status"),
+                CreatedAt = ReadDate(reader, "created_at") ?? DateTime.UtcNow,
+                UpdatedAt = ReadDate(reader, "updated_at") ?? DateTime.UtcNow
+            }),
+            PlayerFields = Query(connection, "SELECT * FROM player_field_definitions ORDER BY display_order, name", reader => new PlayerFieldDefinition
+            {
+                Id = ReadGuid(reader, "id"),
+                Name = ReadString(reader, "name"),
+                FieldType = ReadString(reader, "field_type"),
+                IsRequired = ReadBool(reader, "is_required"),
+                DisplayOrder = ReadInt(reader, "display_order")
+            }),
+            PlayerFieldValues = Query(connection, "SELECT * FROM player_field_values", reader => new PlayerFieldValue
+            {
+                PlayerId = ReadGuid(reader, "player_id"),
+                FieldId = ReadGuid(reader, "field_id"),
+                Value = ReadString(reader, "value")
+            }),
+            Teams = Query(connection, "SELECT * FROM teams ORDER BY name", reader => new Team
+            {
+                Id = ReadGuid(reader, "id"),
+                Name = ReadString(reader, "name"),
+                Note = ReadString(reader, "note")
+            }),
+            Matches = Query(connection, "SELECT * FROM matches ORDER BY created_at", reader => new Match
+            {
+                Id = ReadGuid(reader, "id"),
+                Name = ReadString(reader, "name"),
+                HomeTeamName = ReadString(reader, "home_team_name"),
+                AwayTeamName = ReadString(reader, "away_team_name"),
+                PeriodLengthSeconds = ReadInt(reader, "period_length_seconds"),
+                CurrentPeriod = ReadInt(reader, "current_period"),
+                RemainingSeconds = ReadInt(reader, "remaining_seconds"),
+                IsClockRunning = ReadBool(reader, "is_clock_running"),
+                LastClockUpdateUtc = ReadDate(reader, "last_clock_update_utc"),
+                CreatedAt = ReadDate(reader, "created_at") ?? DateTime.UtcNow,
+                EndedAt = ReadDate(reader, "ended_at")
+            }),
+            Rosters = Query(connection, "SELECT * FROM match_rosters", reader => new MatchRoster
+            {
+                Id = ReadGuid(reader, "id"),
+                MatchId = ReadGuid(reader, "match_id"),
+                PlayerId = ReadGuid(reader, "player_id"),
+                Side = ReadEnum<TeamSide>(reader, "side"),
+                JerseyNumber = ReadString(reader, "jersey_number"),
+                IsStarter = ReadBool(reader, "is_starter")
+            }),
+            Events = Query(connection, "SELECT * FROM match_events ORDER BY created_at", reader => new MatchEvent
+            {
+                Id = ReadGuid(reader, "id"),
+                MatchId = ReadGuid(reader, "match_id"),
+                PlayerId = ReadGuid(reader, "player_id"),
+                Side = ReadEnum<TeamSide>(reader, "side"),
+                Kind = ReadEnum<MatchEventKind>(reader, "kind"),
+                Points = ReadInt(reader, "points"),
+                Period = ReadInt(reader, "period"),
+                ClockSecondsRemaining = ReadInt(reader, "clock_seconds_remaining"),
+                Note = ReadString(reader, "note"),
+                CreatedAt = ReadDate(reader, "created_at") ?? DateTime.UtcNow
+            })
+        };
+    }
+
+    private void CreateSchema(SqliteConnection connection)
+    {
+        Execute(connection, null, """
+            CREATE TABLE players (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                student_number TEXT NOT NULL DEFAULT '',
+                team TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                photo_path TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """);
+        Execute(connection, null, "CREATE UNIQUE INDEX IF NOT EXISTS ux_players_student_number ON players(student_number) WHERE student_number <> ''");
+        Execute(connection, null, """
+            CREATE TABLE player_field_definitions (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                field_type TEXT NOT NULL DEFAULT 'Text',
+                is_required INTEGER NOT NULL DEFAULT 0,
+                display_order INTEGER NOT NULL DEFAULT 0
+            )
+            """);
+        Execute(connection, null, """
+            CREATE TABLE player_field_values (
+                player_id TEXT NOT NULL,
+                field_id TEXT NOT NULL,
+                value TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (player_id, field_id),
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                FOREIGN KEY (field_id) REFERENCES player_field_definitions(id) ON DELETE CASCADE
+            )
+            """);
+        Execute(connection, null, "CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, note TEXT NOT NULL DEFAULT '')");
+        Execute(connection, null, """
+            CREATE TABLE matches (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                home_team_name TEXT NOT NULL,
+                away_team_name TEXT NOT NULL,
+                period_length_seconds INTEGER NOT NULL,
+                current_period INTEGER NOT NULL,
+                remaining_seconds INTEGER NOT NULL,
+                is_clock_running INTEGER NOT NULL,
+                last_clock_update_utc TEXT NULL,
+                created_at TEXT NOT NULL,
+                ended_at TEXT NULL
+            )
+            """);
+        Execute(connection, null, """
+            CREATE TABLE match_rosters (
+                id TEXT PRIMARY KEY,
+                match_id TEXT NOT NULL,
+                player_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                jersey_number TEXT NOT NULL DEFAULT '',
+                is_starter INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (match_id, player_id),
+                FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+            )
+            """);
+        Execute(connection, null, """
+            CREATE TABLE match_events (
+                id TEXT PRIMARY KEY,
+                match_id TEXT NOT NULL,
+                player_id TEXT NOT NULL,
+                side TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                points INTEGER NOT NULL DEFAULT 0,
+                period INTEGER NOT NULL,
+                clock_seconds_remaining INTEGER NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+            )
+            """);
+    }
+
+    private AppData LoadLegacyJson()
+    {
+        var json = File.ReadAllText(LegacyJsonPath);
+        return JsonSerializer.Deserialize<AppData>(json, JsonOptions) ?? new AppData();
+    }
+
+    private SqliteConnection OpenConnection()
+    {
+        Directory.CreateDirectory(DataDirectory);
+        var connection = new SqliteConnection($"Data Source={DataPath}");
+        connection.Open();
+        return connection;
+    }
+
+    private static int GetSchemaVersion(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT version FROM schema_info LIMIT 1";
+        var value = command.ExecuteScalar();
+        return value is null || value == DBNull.Value ? 0 : Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
+
+    private static void Execute(SqliteConnection connection, SqliteTransaction? transaction, string sql, params (string Name, object? Value)[] parameters)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.Name, parameter.Value ?? DBNull.Value);
+        }
+
+        command.ExecuteNonQuery();
+    }
+
+    private static List<T> Query<T>(SqliteConnection connection, string sql, Func<SqliteDataReader, T> map)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        using var reader = command.ExecuteReader();
+        var results = new List<T>();
+        while (reader.Read())
+        {
+            results.Add(map(reader));
+        }
+
+        return results;
+    }
+
+    private static string ToText(DateTime value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+    private static string? ToText(DateTime? value) => value is null ? null : ToText(value.Value);
+    private static string ReadString(SqliteDataReader reader, string name) => reader[name] as string ?? "";
+    private static int ReadInt(SqliteDataReader reader, string name) => Convert.ToInt32(reader[name], CultureInfo.InvariantCulture);
+    private static bool ReadBool(SqliteDataReader reader, string name) => ReadInt(reader, name) != 0;
+    private static Guid ReadGuid(SqliteDataReader reader, string name) => Guid.Parse(ReadString(reader, name));
+
+    private static DateTime? ReadDate(SqliteDataReader reader, string name)
+    {
+        var value = reader[name];
+        if (value is null || value == DBNull.Value || string.IsNullOrWhiteSpace(value.ToString()))
+        {
+            return null;
+        }
+
+        return DateTime.Parse(value.ToString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+    }
+
+    private static T ReadEnum<T>(SqliteDataReader reader, string name) where T : struct
+    {
+        return Enum.TryParse<T>(ReadString(reader, name), out var value) ? value : default;
+    }
+
+    private static bool IsEmpty(AppData data)
+    {
+        return data.Players.Count == 0
+            && data.PlayerFields.Count == 0
+            && data.PlayerFieldValues.Count == 0
+            && data.Teams.Count == 0
+            && data.Matches.Count == 0
+            && data.Rosters.Count == 0
+            && data.Events.Count == 0;
+    }
+
+    private static void CopyDirectory(string sourceDirectory, string targetDirectory)
+    {
+        Directory.CreateDirectory(targetDirectory);
+        foreach (var file in Directory.GetFiles(sourceDirectory))
+        {
+            File.Copy(file, Path.Combine(targetDirectory, Path.GetFileName(file)), overwrite: false);
+        }
+
+        foreach (var directory in Directory.GetDirectories(sourceDirectory))
+        {
+            CopyDirectory(directory, Path.Combine(targetDirectory, Path.GetFileName(directory)));
+        }
     }
 }

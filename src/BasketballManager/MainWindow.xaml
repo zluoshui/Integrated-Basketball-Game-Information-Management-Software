@@ -41,6 +41,8 @@
                         <TextBox x:Name="StudentNumberBox" />
                         <TextBlock Text="队伍" />
                         <TextBox x:Name="PlayerTeamBox" />
+                        <TextBlock Text="状态" />
+                        <ComboBox x:Name="PlayerStatusCombo" Width="90" />
                         <TextBlock Text="备注" />
                         <TextBox x:Name="PlayerNoteBox" Width="180" />
                         <TextBlock Text="照片" />
@@ -49,6 +51,7 @@
                         <Button Content="新增/保存球员" Click="SavePlayer_Click" />
                         <Button Content="新建球员" Click="NewPlayer_Click" />
                         <Button Content="删除球员" Click="DeletePlayer_Click" />
+                        <Button Content="备份数据" Click="BackupData_Click" />
                     </WrapPanel>
                     <Grid Grid.Row="1" Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
@@ -78,16 +81,33 @@
                                 <DataGridTextColumn Header="姓名" Binding="{Binding Name}" Width="*" />
                                 <DataGridTextColumn Header="学号" Binding="{Binding StudentNumber}" Width="*" />
                                 <DataGridTextColumn Header="队伍" Binding="{Binding Team}" Width="*" />
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="*" />
                                 <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="2*" />
                                 <DataGridTextColumn Header="照片路径" Binding="{Binding PhotoPath}" Width="2*" />
                             </DataGrid.Columns>
                         </DataGrid>
-                        <DataGrid x:Name="CustomFieldsGrid"
-                                  Grid.Row="1"
-                                  Grid.Column="1"
-                                  Margin="8,0,0,0"
-                                  AutoGenerateColumns="True"
-                                  IsReadOnly="True" />
+                        <Grid Grid.Row="1" Grid.Column="1" Margin="8,0,0,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Border BorderBrush="#DDD" BorderThickness="1" Height="150" Margin="0,0,0,8">
+                                <Grid>
+                                    <Image x:Name="PhotoPreview" Stretch="Uniform" />
+                                    <TextBlock x:Name="PhotoPreviewStatus"
+                                               Text="无照片"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="#666" />
+                                </Grid>
+                            </Border>
+                            <TextBlock Grid.Row="1" Text="自定义字段值" FontWeight="Bold" />
+                            <DataGrid x:Name="CustomFieldsGrid"
+                                      Grid.Row="2"
+                                      AutoGenerateColumns="True"
+                                      IsReadOnly="True" />
+                        </Grid>
                     </Grid>
                 </Grid>
             </TabItem>

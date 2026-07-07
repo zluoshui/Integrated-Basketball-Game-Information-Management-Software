@@ -89,7 +89,7 @@ public sealed class MatchEvent
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid MatchId { get; set; }
-    public Guid PlayerId { get; set; }
+    public Guid? PlayerId { get; set; }
     public TeamSide Side { get; set; }
     public MatchEventKind Kind { get; set; }
     public int Points { get; set; }
@@ -127,7 +127,8 @@ public enum MatchEventKind
     Steal,
     Block,
     Turnover,
-    TimeoutRequest
+    TimeoutRequest,
+    ClockControl
 }
 
 public sealed class ScoreProjection
@@ -139,6 +140,7 @@ public sealed class ScoreProjection
     public int HomeTimeouts { get; set; }
     public int AwayTimeouts { get; set; }
     public List<PlayerStats> PlayerStats { get; set; } = [];
+    public List<PeriodTeamStats> PeriodTeamStats { get; set; } = [];
 }
 
 public sealed class PlayerStats
@@ -153,4 +155,11 @@ public sealed class PlayerStats
     public int Blocks { get; set; }
     public int Turnovers { get; set; }
     public int TimeoutRequests { get; set; }
+}
+
+public sealed class PeriodTeamStats
+{
+    public int Period { get; set; }
+    public int HomeFouls { get; set; }
+    public int AwayFouls { get; set; }
 }

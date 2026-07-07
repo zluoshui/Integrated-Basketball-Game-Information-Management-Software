@@ -40,7 +40,7 @@
                         <TextBlock Text="学号" />
                         <TextBox x:Name="StudentNumberBox" />
                         <TextBlock Text="队伍" />
-                        <ComboBox x:Name="PlayerTeamCombo" Width="130" IsEditable="True" DisplayMemberPath="DisplayName" />
+                        <ComboBox x:Name="PlayerTeamCombo" Width="130" DisplayMemberPath="DisplayName" />
                         <TextBlock Text="状态" />
                         <ComboBox x:Name="PlayerStatusCombo" Width="90" />
                         <TextBlock Text="备注" />
@@ -143,8 +143,8 @@
                         <TextBox x:Name="MatchNoteBox" Width="160" />
                         <TextBlock Text="节数" />
                         <TextBox x:Name="PeriodCountBox" Width="50" Text="4" />
-                        <TextBlock Text="每节秒数" />
-                        <TextBox x:Name="PeriodLengthBox" Width="80" Text="600" />
+                        <TextBlock Text="每节分钟" />
+                        <TextBox x:Name="PeriodLengthBox" Width="80" Text="10" />
                         <Button Content="创建比赛" Click="CreateMatch_Click" />
                         <TextBlock Text="当前比赛" />
                         <ComboBox x:Name="MatchCombo" DisplayMemberPath="DisplayName" SelectionChanged="MatchCombo_SelectionChanged" Width="280" />
@@ -158,6 +158,8 @@
                         <TextBox x:Name="JerseyNumberBox" Width="70" />
                         <CheckBox x:Name="StarterBox" Content="首发" Margin="8,4" VerticalAlignment="Center" />
                         <Button Content="加入名单" Click="AddRoster_Click" />
+                        <Button Content="更新名单" Click="UpdateRoster_Click" />
+                        <Button Content="移出名单" Click="RemoveRoster_Click" />
                     </WrapPanel>
                     <Grid Grid.Row="3">
                         <Grid.ColumnDefinitions>
@@ -179,7 +181,8 @@
                         <DataGrid x:Name="RostersGrid"
                                   Grid.Column="1"
                                   AutoGenerateColumns="True"
-                                  IsReadOnly="True" />
+                                  IsReadOnly="True"
+                                  SelectionChanged="RostersGrid_SelectionChanged" />
                     </Grid>
                 </Grid>
             </TabItem>
@@ -262,6 +265,7 @@
                     </Grid.RowDefinitions>
                     <WrapPanel Grid.Row="0">
                         <Button Content="作废上一条有效事件" Click="UndoLastEvent_Click" />
+                        <Button Content="作废选中事件" Click="VoidSelectedEvent_Click" />
                         <TextBlock Text="作废原因" />
                         <TextBox x:Name="VoidReasonBox" Width="180" />
                         <TextBlock Text="操作人" />

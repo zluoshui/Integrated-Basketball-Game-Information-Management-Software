@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         PlayerStatusCombo.SelectedItem = "在队";
         RosterSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         RosterSideCombo.SelectedItem = TeamSide.Home;
+        RosterSideCombo.SelectionChanged += (_, _) => RefreshRosterCandidates();
         ScoreboardSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         ScoreboardSideCombo.SelectedItem = TeamSide.Home;
         EventFilterSideCombo.ItemsSource = new[] { "全部", "主队", "客队" };
@@ -75,6 +76,8 @@ public partial class MainWindow : Window
     private Player? SelectedPlayer => PlayersGrid.SelectedItem as Player;
     private Team? SelectedTeam => TeamsGrid.SelectedItem as Team;
     private Player? ActivePlayer => ActivePlayerCombo.SelectedItem as Player;
+    private RosterRow? SelectedRoster => RostersGrid.SelectedItem as RosterRow;
+    private EventRow? SelectedEvent => EventsGrid.SelectedItem as EventRow;
 
     private void RefreshAll()
     {
@@ -99,11 +102,8 @@ public partial class MainWindow : Window
             .ToList();
 
         PlayersGrid.ItemsSource = players;
-        PlayerTeamCombo.ItemsSource = _data.Teams.OrderBy(team => team.Name).ToList();
-        RosterPlayerCombo.ItemsSource = _data.Players
-            .Where(player => player.Status != "停用")
-            .OrderBy(player => player.Name)
-            .ToList();
+        PlayerTeamCombo.ItemsSource = _data.Teams.Where(team => team.Status == "启用").OrderBy(team => team.Name).ToList();
+        RefreshRosterCandidates();
         RefreshCustomFields();
         RefreshActivePlayers();
     }
@@ -112,7 +112,7 @@ public partial class MainWindow : Window
     {
         var teams = _data.Teams.OrderBy(team => team.Status).ThenBy(team => team.Name).ToList();
         TeamsGrid.ItemsSource = teams;
-        PlayerTeamCombo.ItemsSource = teams;
+        PlayerTeamCombo.ItemsSource = _data.Teams.Where(team => team.Status == "启用").OrderBy(team => team.Name).ToList();
         HomeTeamCombo.ItemsSource = _data.Teams.Where(team => team.Status == "启用").OrderBy(team => team.Name).ToList();
         AwayTeamCombo.ItemsSource = _data.Teams.Where(team => team.Status == "启用").OrderBy(team => team.Name).ToList();
     }
@@ -154,8 +154,9 @@ public partial class MainWindow : Window
             .Select(roster =>
             {
                 var player = _data.Players.FirstOrDefault(item => item.Id == roster.PlayerId);
-                return new
+                return new RosterRow
                 {
+                    名单ID = roster.Id,
                     球员 = player?.DisplayName ?? "未知球员",
                     队伍 = roster.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
                     号码 = roster.JerseyNumber,
@@ -164,7 +165,21 @@ public partial class MainWindow : Window
             })
             .ToList();
 
+        RefreshRosterCandidates();
         RefreshActivePlayers();
+    }
+
+    private void RefreshRosterCandidates()
+    {
+        var match = CurrentMatch;
+        var side = RosterSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
+        var sideTeamId = side == TeamSide.Home ? match?.HomeTeamId : match?.AwayTeamId;
+        RosterPlayerCombo.ItemsSource = _data.Players
+            .Where(player => player.Status != "停用")
+            .Where(player => sideTeamId is null || player.TeamId == sideTeamId)
+            .OrderBy(player => player.Team)
+            .ThenBy(player => player.Name)
+            .ToList();
     }
 
     private void RefreshActivePlayers()
@@ -202,7 +217,8 @@ public partial class MainWindow : Window
         ScoreText.Text = $"{projection.HomeScore} - {projection.AwayScore}";
         PeriodText.Text = $"第 {match.CurrentPeriod} / {match.PeriodCount} 节";
         StatusText.Text = MatchStatusText(match.Status);
-        FoulTimeoutText.Text = $"{projection.HomeFouls}:{projection.AwayFouls} / {projection.HomeTimeouts}:{projection.AwayTimeouts}";
+        var currentPeriodStats = projection.PeriodTeamStats.FirstOrDefault(item => item.Period == match.CurrentPeriod);
+        FoulTimeoutText.Text = $"全场犯规 {projection.HomeFouls}:{projection.AwayFouls} / 暂停 {projection.HomeTimeouts}:{projection.AwayTimeouts} / 本节犯规 {currentPeriodStats?.HomeFouls ?? 0}:{currentPeriodStats?.AwayFouls ?? 0}";
         StatsGrid.ItemsSource = projection.PlayerStats;
         RefreshScoreboardControls(match);
     }
@@ -253,6 +269,7 @@ public partial class MainWindow : Window
                 比分 = projection.HomeScore,
                 犯规 = projection.HomeFouls,
                 暂停 = projection.HomeTimeouts,
+                本节犯规 = projection.PeriodTeamStats.FirstOrDefault(item => item.Period == match.CurrentPeriod)?.HomeFouls ?? 0,
                 篮板 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Rebounds),
                 助攻 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Assists),
                 抢断 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Steals),
@@ -265,6 +282,7 @@ public partial class MainWindow : Window
                 比分 = projection.AwayScore,
                 犯规 = projection.AwayFouls,
                 暂停 = projection.AwayTimeouts,
+                本节犯规 = projection.PeriodTeamStats.FirstOrDefault(item => item.Period == match.CurrentPeriod)?.AwayFouls ?? 0,
                 篮板 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Rebounds),
                 助攻 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Assists),
                 抢断 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Steals),
@@ -277,15 +295,16 @@ public partial class MainWindow : Window
             .OrderByDescending(item => item.CreatedAt)
             .Select(item =>
             {
-                var player = _data.Players.FirstOrDefault(p => p.Id == item.PlayerId);
-                return new
+                var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(p => p.Id == item.PlayerId);
+                return new EventRow
                 {
+                    事件ID = item.Id,
                     状态 = item.IsVoided ? "作废" : "有效",
                     时间 = item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                     节次 = item.Period,
                     表钟 = FormatSeconds(item.ClockSecondsRemaining),
-                    队伍 = item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                    球员 = player?.DisplayName ?? "未知球员",
+                    队伍 = item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
+                    球员 = player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统"),
                     事件 = EventText(item),
                     分值 = item.Points,
                     备注 = item.Note,
@@ -320,7 +339,7 @@ public partial class MainWindow : Window
         {
             events = events.Where(item =>
             {
-                var player = _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+                var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
                 return player?.DisplayName.Contains(playerFilter, StringComparison.OrdinalIgnoreCase) == true
                     || player?.Team.Contains(playerFilter, StringComparison.OrdinalIgnoreCase) == true;
             });
@@ -347,6 +366,7 @@ public partial class MainWindow : Window
             MatchEventKind.Block => "盖帽",
             MatchEventKind.Turnover => "失误",
             MatchEventKind.TimeoutRequest => "申请暂停",
+            MatchEventKind.ClockControl => string.IsNullOrWhiteSpace(item.Note) ? "计时控制" : item.Note,
             _ => item.Kind.ToString()
         };
     }
@@ -379,15 +399,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        var now = DateTime.UtcNow;
+        var messages = new List<string>();
         foreach (var match in runningMatches)
         {
+            var elapsedSeconds = match.LastClockUpdateUtc is null
+                ? 0
+                : Math.Max(0, (int)(now - match.LastClockUpdateUtc.Value).TotalSeconds);
+            if (elapsedSeconds > 0)
+            {
+                match.RemainingSeconds = Math.Max(0, match.RemainingSeconds - elapsedSeconds);
+            }
+
             match.IsClockRunning = false;
             match.LastClockUpdateUtc = null;
-            match.Status = MatchStatus.Paused;
+            match.Status = match.RemainingSeconds == 0
+                ? match.CurrentPeriod >= match.PeriodCount ? MatchStatus.Finished : MatchStatus.Interval
+                : MatchStatus.Paused;
+            if (match.Status == MatchStatus.Finished)
+            {
+                match.EndedAt ??= now;
+            }
+
+            messages.Add($"{match.DisplayName}：扣减 {elapsedSeconds} 秒，恢复为 {MatchStatusText(match.Status)}，剩余 {FormatSeconds(match.RemainingSeconds)}。");
         }
 
         SaveData();
-        MessageBox.Show($"检测到 {runningMatches.Count} 场比赛上次关闭时仍在计时，已按恢复策略自动暂停。", "计时已恢复", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"检测到 {runningMatches.Count} 场比赛上次关闭时仍在计时，已按真实经过时间扣减后自动停止计时。\n\n{string.Join("\n", messages)}", "计时已恢复", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void SelectPhoto_Click(object sender, RoutedEventArgs e)
@@ -433,13 +471,15 @@ public partial class MainWindow : Window
 
         player.Name = name;
         player.StudentNumber = studentNumber;
-        var teamText = PlayerTeamCombo.Text.Trim();
         var selectedTeam = PlayerTeamCombo.SelectedItem as Team;
-        var matchedTeam = selectedTeam?.Name.Equals(teamText, StringComparison.OrdinalIgnoreCase) == true
-            ? selectedTeam
-            : _data.Teams.FirstOrDefault(team => team.Name.Equals(teamText, StringComparison.OrdinalIgnoreCase));
-        player.TeamId = matchedTeam?.Id;
-        player.Team = matchedTeam?.Name ?? teamText;
+        if (selectedTeam is null || selectedTeam.Status != "启用")
+        {
+            MessageBox.Show("普通球员必须选择一个已有且启用的队伍。临时球员或外援请后续通过专门入口登记。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        player.TeamId = selectedTeam.Id;
+        player.Team = selectedTeam.Name;
         player.Note = PlayerNoteBox.Text.Trim();
         player.PhotoPath = PhotoPathBox.Text.Trim();
         player.Status = PlayerStatusCombo.SelectedItem?.ToString() ?? "在队";
@@ -544,7 +584,6 @@ public partial class MainWindow : Window
         PlayerNameBox.Text = player.Name;
         StudentNumberBox.Text = player.StudentNumber;
         PlayerTeamCombo.SelectedItem = _data.Teams.FirstOrDefault(team => team.Id == player.TeamId);
-        PlayerTeamCombo.Text = player.Team;
         PlayerStatusCombo.SelectedItem = player.Status;
         PlayerNoteBox.Text = player.Note;
         PhotoPathBox.Text = player.PhotoPath;
@@ -562,7 +601,6 @@ public partial class MainWindow : Window
         PlayerNameBox.Text = "";
         StudentNumberBox.Text = "";
         PlayerTeamCombo.SelectedItem = null;
-        PlayerTeamCombo.Text = "";
         PlayerStatusCombo.SelectedItem = "在队";
         PlayerNoteBox.Text = "";
         PhotoPathBox.Text = "";
@@ -647,7 +685,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var team = SelectedTeam ?? _data.Teams.FirstOrDefault(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        var team = SelectedTeam;
+        if (team is null && _data.Teams.Any(item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show($"队伍“{name}”已存在，请从左侧选择该队伍后再编辑。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         if (team is null)
         {
             team = new Team();
@@ -667,19 +711,6 @@ public partial class MainWindow : Window
         {
             player.Team = team.Name;
             player.UpdatedAt = DateTime.UtcNow;
-        }
-
-        foreach (var match in _data.Matches)
-        {
-            if (match.HomeTeamId == team.Id)
-            {
-                match.HomeTeamName = team.Name;
-            }
-
-            if (match.AwayTeamId == team.Id)
-            {
-                match.AwayTeamName = team.Name;
-            }
         }
 
         SaveData();
@@ -764,11 +795,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!int.TryParse(PeriodLengthBox.Text.Trim(), out var periodLength) || periodLength <= 0)
+        if (!int.TryParse(PeriodLengthBox.Text.Trim(), out var periodLengthMinutes) || periodLengthMinutes <= 0)
         {
-            MessageBox.Show("每节秒数必须是正整数。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("每节分钟必须是正整数。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
+
+        var periodLength = periodLengthMinutes * 60;
 
         DateTime? scheduledAt = null;
         var dateText = MatchDateBox.Text.Trim();
@@ -808,6 +841,66 @@ public partial class MainWindow : Window
 
     private void AddRoster_Click(object sender, RoutedEventArgs e)
     {
+        SaveRosterEntry(null);
+    }
+
+    private void UpdateRoster_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = SelectedRoster;
+        if (selected is null)
+        {
+            MessageBox.Show("请先在名单表中选择要更新的球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var roster = _data.Rosters.FirstOrDefault(item => item.Id == selected.名单ID);
+        if (roster is null)
+        {
+            MessageBox.Show("选中的名单记录已不存在，请刷新后重试。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshRosters();
+            return;
+        }
+
+        SaveRosterEntry(roster);
+    }
+
+    private void RemoveRoster_Click(object sender, RoutedEventArgs e)
+    {
+        var match = CurrentMatch;
+        var selected = SelectedRoster;
+        if (match is null || selected is null)
+        {
+            MessageBox.Show("请先选择比赛和要移出的名单记录。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!EnsureRosterEditable(match))
+        {
+            return;
+        }
+
+        var roster = _data.Rosters.FirstOrDefault(item => item.Id == selected.名单ID);
+        if (roster is null)
+        {
+            MessageBox.Show("选中的名单记录已不存在，请刷新后重试。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshRosters();
+            return;
+        }
+
+        var result = MessageBox.Show($"确认将“{selected.球员}”移出本场比赛名单吗？", "确认移出名单", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        _data.Rosters.Remove(roster);
+        SaveData();
+        RefreshRosters();
+        RefreshScoreboard();
+    }
+
+    private void SaveRosterEntry(MatchRoster? existingRoster)
+    {
         var match = CurrentMatch;
         var player = RosterPlayerCombo.SelectedItem as Player;
         if (match is null || player is null)
@@ -816,37 +909,105 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!EnsureRosterEditable(match))
+        {
+            return;
+        }
+
         var side = RosterSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
         var sideTeamId = side == TeamSide.Home ? match.HomeTeamId : match.AwayTeamId;
-        if (player.TeamId is not null && sideTeamId is not null && player.TeamId != sideTeamId)
+        if (player.TeamId is null || sideTeamId is null || player.TeamId != sideTeamId)
         {
-            MessageBox.Show("该球员不属于所选阵营的队伍。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("正式比赛名单只能选择所选阵营队伍下的球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         var roster = _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id);
         if (roster is not null)
         {
-            MessageBox.Show("该球员已在本场比赛名单中。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            if (existingRoster is null || roster.Id != existingRoster.Id)
+            {
+                MessageBox.Show("该球员已在本场比赛名单中。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
         }
 
-        var jerseyNumber = JerseyNumberBox.Text.Trim();
+        string jerseyNumber;
+        try
+        {
+            jerseyNumber = NormalizeJerseyNumber(JerseyNumberBox.Text.Trim());
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(ex.Message, "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(jerseyNumber)
-            && _data.Rosters.Any(item => item.MatchId == match.Id && item.Side == side && item.JerseyNumber.Equals(jerseyNumber, StringComparison.OrdinalIgnoreCase)))
+            && _data.Rosters.Any(item => item.MatchId == match.Id && item.Side == side && item.Id != existingRoster?.Id && item.JerseyNumber.Equals(jerseyNumber, StringComparison.OrdinalIgnoreCase)))
         {
             MessageBox.Show($"该阵营已存在 {jerseyNumber} 号球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        roster = new MatchRoster { MatchId = match.Id, PlayerId = player.Id };
+        roster = existingRoster ?? new MatchRoster { MatchId = match.Id };
+        roster.PlayerId = player.Id;
         roster.Side = side;
         roster.JerseyNumber = jerseyNumber;
         roster.IsStarter = StarterBox.IsChecked == true;
-        _data.Rosters.Add(roster);
+        if (existingRoster is null)
+        {
+            _data.Rosters.Add(roster);
+        }
+
         SaveData();
         RefreshRosters();
         RefreshScoreboard();
+    }
+
+    private bool EnsureRosterEditable(Match match)
+    {
+        if (match.Status == MatchStatus.NotStarted)
+        {
+            return true;
+        }
+
+        MessageBox.Show($"当前比赛状态为“{MatchStatusText(match.Status)}”，名单已锁定。赛中或赛后名单更正需要后续专门审计入口。", "名单已锁定", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return false;
+    }
+
+    private static string NormalizeJerseyNumber(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "";
+        }
+
+        if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number < 0 || number > 99)
+        {
+            throw new InvalidOperationException("球衣号必须为空，或填写 0 到 99 的整数。");
+        }
+
+        return number.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void RostersGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = SelectedRoster;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var roster = _data.Rosters.FirstOrDefault(item => item.Id == selected.名单ID);
+        if (roster is null)
+        {
+            return;
+        }
+
+        RosterSideCombo.SelectedItem = roster.Side;
+        RosterPlayerCombo.SelectedItem = _data.Players.FirstOrDefault(player => player.Id == roster.PlayerId);
+        JerseyNumberBox.Text = roster.JerseyNumber;
+        StarterBox.IsChecked = roster.IsStarter;
     }
 
     private void MatchCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -995,13 +1156,30 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (match.RemainingSeconds > 0)
+        {
+            var confirm = MessageBox.Show(
+                $"当前第 {match.CurrentPeriod} 节仍剩余 {FormatSeconds(match.RemainingSeconds)}。\n确认提前进入下一节吗？该操作会写入比赛日志。",
+                "确认进入下一节",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        var previousPeriod = match.CurrentPeriod;
+        var previousRemaining = match.RemainingSeconds;
         match.CurrentPeriod++;
         match.RemainingSeconds = match.PeriodLengthSeconds;
         match.IsClockRunning = false;
         match.LastClockUpdateUtc = null;
         match.Status = MatchStatus.Interval;
+        AddClockControlEvent(match, $"提前从第 {previousPeriod} 节进入第 {match.CurrentPeriod} 节，原剩余 {FormatSeconds(previousRemaining)}");
         SaveData();
         RefreshScoreboard();
+        RefreshEvents();
     }
 
     private void EndMatch_Click(object sender, RoutedEventArgs e)
@@ -1037,13 +1215,38 @@ public partial class MainWindow : Window
         RefreshScoreboard();
     }
 
+    private void AddClockControlEvent(Match match, string note)
+    {
+        _data.Events.Add(new MatchEvent
+        {
+            MatchId = match.Id,
+            PlayerId = null,
+            Side = TeamSide.Home,
+            Kind = MatchEventKind.ClockControl,
+            Period = match.CurrentPeriod,
+            ClockSecondsRemaining = match.RemainingSeconds,
+            Note = note
+        });
+    }
+
     private bool ValidateRosterBeforeClockStart(Match match)
     {
         var homeRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Home);
         var awayRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Away);
         if (homeRosterCount > 0 && awayRosterCount > 0)
         {
-            return true;
+            var emptyJerseyCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && string.IsNullOrWhiteSpace(roster.JerseyNumber));
+            if (emptyJerseyCount == 0)
+            {
+                return true;
+            }
+
+            var result = MessageBox.Show(
+                $"本场名单中仍有 {emptyJerseyCount} 名球员未填写球衣号。确认继续开始比赛吗？",
+                "球衣号未完整",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            return result == MessageBoxResult.Yes;
         }
 
         MessageBox.Show(
@@ -1070,7 +1273,7 @@ public partial class MainWindow : Window
         }
 
         match.RemainingSeconds = Math.Max(0, match.RemainingSeconds - elapsedSeconds);
-        match.LastClockUpdateUtc = now;
+        match.LastClockUpdateUtc = match.LastClockUpdateUtc.Value.AddSeconds(elapsedSeconds);
         if (match.RemainingSeconds == 0)
         {
             match.IsClockRunning = false;
@@ -1080,8 +1283,9 @@ public partial class MainWindow : Window
             {
                 match.EndedAt ??= DateTime.UtcNow;
             }
-            SaveData();
         }
+
+        SaveData();
     }
 
     private void ScoreOne_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.Score, 1);
@@ -1093,7 +1297,43 @@ public partial class MainWindow : Window
     private void Steal_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.Steal);
     private void Block_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.Block);
     private void Turnover_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.Turnover);
-    private void TimeoutRequest_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.TimeoutRequest);
+    private void TimeoutRequest_Click(object sender, RoutedEventArgs e) => RecordTimeoutRequest();
+
+    private void RecordTimeoutRequest()
+    {
+        var match = CurrentMatch;
+        if (match is null)
+        {
+            MessageBox.Show("请先选择比赛。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        UpdateClockFromElapsed();
+        if (match.Status != MatchStatus.Running)
+        {
+            MessageBox.Show($"当前比赛状态为“{MatchStatusText(match.Status)}”，只有进行中才能记录暂停。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var side = ScoreboardSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
+        var player = ActivePlayer;
+        var roster = player is null ? null : _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id && item.Side == side);
+        _data.Events.Add(new MatchEvent
+        {
+            MatchId = match.Id,
+            PlayerId = roster?.PlayerId,
+            Side = side,
+            Kind = MatchEventKind.TimeoutRequest,
+            Period = match.CurrentPeriod,
+            ClockSecondsRemaining = match.RemainingSeconds,
+            Note = EventNoteBox.Text.Trim()
+        });
+
+        EventNoteBox.Text = "";
+        SaveData();
+        RefreshScoreboard();
+        RefreshEvents();
+    }
 
     private void RecordEvent(MatchEventKind kind, int points = 0)
     {
@@ -1162,9 +1402,49 @@ public partial class MainWindow : Window
             return;
         }
 
-        var player = _data.Players.FirstOrDefault(item => item.Id == last.PlayerId);
+        VoidEvent(last, reason);
+    }
+
+    private void VoidSelectedEvent_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = SelectedEvent;
+        if (selected is null)
+        {
+            MessageBox.Show("请先在比赛日志中选择要作废的事件。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var reason = VoidReasonBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            MessageBox.Show("作废事件必须填写原因，便于赛后复核。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var match = CurrentMatch;
+        var item = match is null ? null : _data.Events.FirstOrDefault(item => item.MatchId == match.Id && item.Id == selected.事件ID);
+        if (item is null)
+        {
+            MessageBox.Show("选中的事件已不存在，请刷新后重试。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshEvents();
+            return;
+        }
+
+        VoidEvent(item, reason);
+    }
+
+    private void VoidEvent(MatchEvent item, string reason)
+    {
+        if (item.IsVoided)
+        {
+            MessageBox.Show("该事件已经作废。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+        var actor = player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统");
         var result = MessageBox.Show(
-            $"确认作废上一条有效事件？\n第 {last.Period} 节 {FormatSeconds(last.ClockSecondsRemaining)}，{TeamSideText(last.Side)}，{player?.DisplayName ?? "未知球员"}，{EventText(last)}。\n\n事件会保留在日志中，并标记为作废。",
+            $"确认作废该事件？\n第 {item.Period} 节 {FormatSeconds(item.ClockSecondsRemaining)}，{TeamSideText(item.Side)}，{actor}，{EventText(item)}。\n\n事件会保留在日志中，并标记为作废。",
             "确认作废事件",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
@@ -1173,10 +1453,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        last.IsVoided = true;
-        last.VoidedAt = DateTime.UtcNow;
-        last.VoidReason = reason;
-        last.VoidedBy = VoidOperatorBox.Text.Trim();
+        item.IsVoided = true;
+        item.VoidedAt = DateTime.UtcNow;
+        item.VoidReason = reason;
+        item.VoidedBy = VoidOperatorBox.Text.Trim();
         VoidReasonBox.Text = "";
         SaveData();
         RefreshScoreboard();
@@ -1201,7 +1481,8 @@ public partial class MainWindow : Window
         try
         {
             Directory.CreateDirectory(_exportDirectory);
-            var exportPath = Path.Combine(_exportDirectory, $"{safeName}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.csv");
+            var matchDate = (match.ScheduledAt ?? DateTime.Now).ToLocalTime().ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+            var exportPath = Path.Combine(_exportDirectory, $"{safeName}-{matchDate}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.csv");
             File.WriteAllText(exportPath, "\uFEFF" + BuildMatchCsv(match), Encoding.UTF8);
             MessageBox.Show($"导出完成：{exportPath}", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
@@ -1275,6 +1556,18 @@ public partial class MainWindow : Window
             projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Turnovers).ToString(CultureInfo.InvariantCulture));
         builder.AppendLine();
 
+        AppendCsvRow(builder, "按节团队犯规");
+        AppendCsvRow(builder, "节次", match.HomeTeamName, match.AwayTeamName);
+        foreach (var item in projection.PeriodTeamStats)
+        {
+            AppendCsvRow(
+                builder,
+                item.Period.ToString(CultureInfo.InvariantCulture),
+                item.HomeFouls.ToString(CultureInfo.InvariantCulture),
+                item.AwayFouls.ToString(CultureInfo.InvariantCulture));
+        }
+        builder.AppendLine();
+
         AppendCsvRow(builder, "球员技术统计");
         AppendCsvRow(builder, "队伍", "球员", "得分", "犯规", "篮板", "助攻", "抢断", "盖帽", "失误", "暂停申请");
         foreach (var item in projection.PlayerStats)
@@ -1298,15 +1591,15 @@ public partial class MainWindow : Window
         AppendCsvRow(builder, "状态", "时间", "节次", "表钟", "队伍", "球员", "事件", "分值", "备注", "作废时间", "作废原因", "操作人");
         foreach (var item in _data.Events.Where(item => item.MatchId == match.Id).OrderBy(item => item.CreatedAt))
         {
-            var player = _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+            var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
             AppendCsvRow(
                 builder,
                 item.IsVoided ? "作废" : "有效",
                 item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 item.Period.ToString(CultureInfo.InvariantCulture),
                 FormatSeconds(item.ClockSecondsRemaining),
-                item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                player?.DisplayName ?? "未知球员",
+                item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
+                player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统"),
                 EventText(item),
                 item.Points.ToString(CultureInfo.InvariantCulture),
                 item.Note,
@@ -1326,6 +1619,32 @@ public partial class MainWindow : Window
     private static string EscapeCsv(string value)
     {
         return "\"" + value.Replace("\"", "\"\"") + "\"";
+    }
+
+    private sealed class RosterRow
+    {
+        public Guid 名单ID { get; set; }
+        public string 球员 { get; set; } = "";
+        public string 队伍 { get; set; } = "";
+        public string 号码 { get; set; } = "";
+        public bool 首发 { get; set; }
+    }
+
+    private sealed class EventRow
+    {
+        public Guid 事件ID { get; set; }
+        public string 状态 { get; set; } = "";
+        public string 时间 { get; set; } = "";
+        public int 节次 { get; set; }
+        public string 表钟 { get; set; } = "";
+        public string 队伍 { get; set; } = "";
+        public string 球员 { get; set; } = "";
+        public string 事件 { get; set; } = "";
+        public int 分值 { get; set; }
+        public string 备注 { get; set; } = "";
+        public string 作废时间 { get; set; } = "";
+        public string 作废原因 { get; set; } = "";
+        public string 操作人 { get; set; } = "";
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)

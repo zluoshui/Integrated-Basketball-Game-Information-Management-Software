@@ -10,5 +10,6 @@ TestResults/
 
 .fake
 .verify-phase5-data-*
+.verify-riskfix-data-*
 exports/*
 !exports/.gitkeep

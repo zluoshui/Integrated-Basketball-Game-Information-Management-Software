@@ -7,7 +7,7 @@ namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private const int CurrentSchemaVersion = 4;
+    private const int CurrentSchemaVersion = 5;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
@@ -186,7 +186,7 @@ public sealed class DataStore
                     """,
                     ("$id", item.Id.ToString()),
                     ("$match_id", item.MatchId.ToString()),
-                    ("$player_id", item.PlayerId.ToString()),
+                    ("$player_id", ToText(item.PlayerId)),
                     ("$side", item.Side.ToString()),
                     ("$kind", item.Kind.ToString()),
                     ("$points", item.Points),
@@ -405,7 +405,7 @@ public sealed class DataStore
             {
                 Id = ReadGuid(reader, "id"),
                 MatchId = ReadGuid(reader, "match_id"),
-                PlayerId = ReadGuid(reader, "player_id"),
+                PlayerId = ReadNullableGuid(reader, "player_id"),
                 Side = ReadEnum<TeamSide>(reader, "side"),
                 Kind = ReadEnum<MatchEventKind>(reader, "kind"),
                 Points = ReadInt(reader, "points"),
@@ -497,7 +497,7 @@ public sealed class DataStore
             CREATE TABLE match_events (
                 id TEXT PRIMARY KEY,
                 match_id TEXT NOT NULL,
-                player_id TEXT NOT NULL,
+                player_id TEXT NULL,
                 side TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 points INTEGER NOT NULL DEFAULT 0,
@@ -549,6 +549,43 @@ public sealed class DataStore
             AddColumnIfMissing(connection, transaction, "match_events", "void_reason", "TEXT NOT NULL DEFAULT ''");
             AddColumnIfMissing(connection, transaction, "match_events", "voided_by", "TEXT NOT NULL DEFAULT ''");
             Execute(connection, transaction, "UPDATE schema_info SET version = 4");
+        }
+
+        if (version < 5)
+        {
+            Execute(connection, transaction, """
+                CREATE TABLE match_events_v5 (
+                    id TEXT PRIMARY KEY,
+                    match_id TEXT NOT NULL,
+                    player_id TEXT NULL,
+                    side TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    points INTEGER NOT NULL DEFAULT 0,
+                    period INTEGER NOT NULL,
+                    clock_seconds_remaining INTEGER NOT NULL,
+                    note TEXT NOT NULL DEFAULT '',
+                    is_voided INTEGER NOT NULL DEFAULT 0,
+                    voided_at TEXT NULL,
+                    void_reason TEXT NOT NULL DEFAULT '',
+                    voided_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
+                    FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+                )
+                """);
+            Execute(connection, transaction, """
+                INSERT INTO match_events_v5 (
+                    id, match_id, player_id, side, kind, points, period, clock_seconds_remaining,
+                    note, is_voided, voided_at, void_reason, voided_by, created_at
+                )
+                SELECT
+                    id, match_id, player_id, side, kind, points, period, clock_seconds_remaining,
+                    note, is_voided, voided_at, void_reason, voided_by, created_at
+                FROM match_events
+                """);
+            Execute(connection, transaction, "DROP TABLE match_events");
+            Execute(connection, transaction, "ALTER TABLE match_events_v5 RENAME TO match_events");
+            Execute(connection, transaction, "UPDATE schema_info SET version = 5");
         }
 
         transaction.Commit();

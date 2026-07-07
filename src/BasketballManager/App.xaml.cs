@@ -57,8 +57,10 @@ internal static class SelfCheck
 
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Score, Points = 2, Note = "快攻" });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.Score, Points = 3 });
-        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Foul });
+        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Foul, Period = 2 });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.TimeoutRequest });
+        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.TimeoutRequest });
+        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.ClockControl, Period = 2, Note = "提前进入下一节" });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Rebound });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Assist });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.Steal });
@@ -79,6 +81,8 @@ internal static class SelfCheck
         Assert(projection.HomeScore == 2, "home score projection failed");
         Assert(projection.AwayScore == 3, "away score projection failed");
         Assert(projection.HomeFouls == 1, "foul projection failed");
+        Assert(projection.PeriodTeamStats.Any(item => item.Period == 2 && item.HomeFouls == 1), "period foul projection failed");
+        Assert(projection.HomeTimeouts == 1, "team timeout projection failed");
         Assert(projection.AwayTimeouts == 1, "timeout projection failed");
         Assert(projection.PlayerStats.Any(item => item.PlayerName == homePlayer.DisplayName && item.Rebounds == 1 && item.Assists == 1 && item.Blocks == 1), "home player stats projection failed");
         Assert(projection.PlayerStats.Any(item => item.PlayerName == awayPlayer.DisplayName && item.Steals == 1 && item.Turnovers == 0), "away player stats projection failed");
@@ -97,7 +101,7 @@ internal static class SelfCheck
             Assert(loaded.Matches[0].RemainingSeconds == 123, "match clock round-trip failed");
             Assert(loaded.PlayerFields.Count == 1, "custom field definition round-trip failed");
             Assert(loaded.PlayerFieldValues.Count == 1, "custom field value round-trip failed");
-            Assert(loaded.Events.Count == 9, "data store event round-trip failed");
+            Assert(loaded.Events.Count == 11, "data store event round-trip failed");
             Assert(loaded.Events.Any(item => item.Note == "快攻"), "event note round-trip failed");
             Assert(loaded.Events.Any(item => item.IsVoided && item.VoidReason == "录入错误" && item.VoidedBy == "自检"), "event void audit round-trip failed");
             Assert(Statistics.Compute(loaded, loaded.Matches[0]).HomeScore == 2, "loaded home projection failed");

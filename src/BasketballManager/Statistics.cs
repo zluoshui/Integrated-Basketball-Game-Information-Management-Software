@@ -20,14 +20,16 @@ public static class Statistics
 
         foreach (var item in data.Events.Where(e => e.MatchId == match.Id && !e.IsVoided).OrderBy(e => e.CreatedAt))
         {
-            if (!statsByPlayer.TryGetValue(item.PlayerId, out var playerStats))
-            {
-                continue;
-            }
+            statsByPlayer.TryGetValue(item.PlayerId ?? Guid.Empty, out var playerStats);
 
             switch (item.Kind)
             {
                 case MatchEventKind.Score:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Points += item.Points;
                     if (item.Side == TeamSide.Home)
                     {
@@ -39,33 +41,76 @@ public static class Statistics
                     }
                     break;
                 case MatchEventKind.Foul:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Fouls++;
+                    var periodStats = projection.PeriodTeamStats.FirstOrDefault(stats => stats.Period == item.Period);
+                    if (periodStats is null)
+                    {
+                        periodStats = new PeriodTeamStats { Period = item.Period };
+                        projection.PeriodTeamStats.Add(periodStats);
+                    }
+
                     if (item.Side == TeamSide.Home)
                     {
                         projection.HomeFouls++;
+                        periodStats.HomeFouls++;
                     }
                     else
                     {
                         projection.AwayFouls++;
+                        periodStats.AwayFouls++;
                     }
                     break;
                 case MatchEventKind.Rebound:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Rebounds++;
                     break;
                 case MatchEventKind.Assist:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Assists++;
                     break;
                 case MatchEventKind.Steal:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Steals++;
                     break;
                 case MatchEventKind.Block:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Blocks++;
                     break;
                 case MatchEventKind.Turnover:
+                    if (playerStats is null)
+                    {
+                        continue;
+                    }
+
                     playerStats.Turnovers++;
                     break;
                 case MatchEventKind.TimeoutRequest:
-                    playerStats.TimeoutRequests++;
+                    if (playerStats is not null)
+                    {
+                        playerStats.TimeoutRequests++;
+                    }
+
                     if (item.Side == TeamSide.Home)
                     {
                         projection.HomeTimeouts++;
@@ -75,9 +120,14 @@ public static class Statistics
                         projection.AwayTimeouts++;
                     }
                     break;
+                case MatchEventKind.ClockControl:
+                    break;
             }
         }
 
+        projection.PeriodTeamStats = projection.PeriodTeamStats
+            .OrderBy(item => item.Period)
+            .ToList();
         projection.PlayerStats = statsByPlayer.Values
             .OrderBy(item => item.Side)
             .ThenBy(item => item.PlayerName)

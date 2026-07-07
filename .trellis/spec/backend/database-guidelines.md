@@ -38,6 +38,7 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - Schema version `2` adds structured team references for players/matches, team status, and match scheduling fields.
 - Schema version `3` adds persisted match status for clock control (`NotStarted`, `Running`, `Paused`, `Interval`, `Finished`).
 - Schema version `4` adds event voiding audit fields: `is_voided`, `voided_at`, `void_reason`, and `voided_by`.
+- Schema version `5` rebuilds `match_events` so `player_id` is nullable for team-level timeout and clock-control audit events.
 - IDs are stored as `TEXT` GUID strings.
 - Dates are stored as round-trip UTC text via `DateTime.ToString("O")`.
 - Booleans are stored as `INTEGER` values `0` or `1`.
@@ -45,6 +46,7 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - Clock state must persist `current_period`, `remaining_seconds`, `status`, `is_clock_running`, and `last_clock_update_utc`.
 - Match event notes are part of the event log contract and must survive save/load round trips.
 - Voided events remain in `match_events`; statistics must ignore rows where `is_voided` is true.
+- `match_events.player_id` may be null only for team-level timeout and clock-control events; player statistics must skip null-player rows.
 - CSV export defaults to the project-level `exports` folder; user overrides are stored in app data as `export-directory.txt`.
 
 ### 4. Validation & Error Matrix

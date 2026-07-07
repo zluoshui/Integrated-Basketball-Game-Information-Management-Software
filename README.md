@@ -43,7 +43,7 @@ dotnet run --project .\src\BasketballManager\BasketballManager.csproj
 dotnet run --project .\src\BasketballManager\BasketballManager.csproj -- --self-check
 ```
 
-自检覆盖统计计算、事件撤销、基础数据保存和读取。
+自检覆盖统计计算、事件撤销、SQLite 数据读写、队伍/比赛关联、连续备份和本地应用数据目录自检。
 
 ## 发布
 
@@ -81,6 +81,14 @@ src\BasketballManager\bin\Release\net10.0-windows\win-x64\publish\
 - 已将主数据源迁移为 SQLite，并保留旧 JSON 自动导入。
 - 已建立 `schema_info` 版本表和初始业务表。
 - 球员资料支持状态、照片预览、学号唯一校验、删除确认、搜索、自定义字段和手动备份。
+
+## 阶段 2 状态
+
+- 已建立队伍管理：新增/编辑/停用队伍。
+- 球员可关联队伍；比赛创建使用主队/客队下拉选择，不再只依赖手工输入队名。
+- 比赛支持日期、地点、节数和每节时长。
+- 参赛名单会校验重复球员、主客队重复、球衣号冲突和球员队伍归属。
+- 数据库 schema 已升级到 v2，并提供 `MigrateDatabase()` 迁移框架。
 
 ## 阶段 0 状态
 

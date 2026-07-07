@@ -23,12 +23,25 @@ internal static class SelfCheck
 {
     public static void Run()
     {
-        var player = new Player { Name = "Test", StudentNumber = "001" };
-        var match = new Match { Name = "MVP", HomeTeamName = "A", AwayTeamName = "B" };
+        var homeTeam = new Team { Name = "A" };
+        var awayTeam = new Team { Name = "B" };
+        var player = new Player { Name = "Test", StudentNumber = "001", TeamId = homeTeam.Id, Team = homeTeam.Name };
+        var match = new Match
+        {
+            Name = "MVP",
+            HomeTeamId = homeTeam.Id,
+            AwayTeamId = awayTeam.Id,
+            HomeTeamName = homeTeam.Name,
+            AwayTeamName = awayTeam.Name,
+            ScheduledAt = DateTime.UtcNow.Date,
+            Location = "Gym",
+            PeriodCount = 4
+        };
         var data = new AppData
         {
             Players = [player],
             PlayerFields = [new PlayerFieldDefinition { Name = "位置", DisplayOrder = 0 }],
+            Teams = [homeTeam, awayTeam],
             Matches = [match],
             Rosters = [new MatchRoster { MatchId = match.Id, PlayerId = player.Id, Side = TeamSide.Home }]
         };
@@ -52,12 +65,15 @@ internal static class SelfCheck
             store.Save(data);
             var loaded = store.Load();
             Assert(loaded.Players.Count == 1, "data store player round-trip failed");
+            Assert(loaded.Teams.Count == 2, "team round-trip failed");
+            Assert(loaded.Matches[0].HomeTeamId == homeTeam.Id, "match team round-trip failed");
             Assert(loaded.PlayerFields.Count == 1, "custom field definition round-trip failed");
             Assert(loaded.PlayerFieldValues.Count == 1, "custom field value round-trip failed");
             Assert(loaded.Events.Count == 1, "data store event round-trip failed");
             Assert(Statistics.Compute(loaded, loaded.Matches[0]).HomeScore == 3, "loaded projection failed");
             Assert(File.Exists(store.DataPath), "sqlite database file missing");
             Assert(Directory.Exists(store.Backup()), "backup directory missing");
+            Assert(Directory.Exists(store.Backup()), "second backup directory missing");
         }
         finally
         {

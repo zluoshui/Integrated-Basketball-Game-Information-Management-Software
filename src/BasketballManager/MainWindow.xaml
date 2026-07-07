@@ -40,7 +40,7 @@
                         <TextBlock Text="学号" />
                         <TextBox x:Name="StudentNumberBox" />
                         <TextBlock Text="队伍" />
-                        <TextBox x:Name="PlayerTeamBox" />
+                        <ComboBox x:Name="PlayerTeamCombo" Width="130" IsEditable="True" DisplayMemberPath="DisplayName" />
                         <TextBlock Text="状态" />
                         <ComboBox x:Name="PlayerStatusCombo" Width="90" />
                         <TextBlock Text="备注" />
@@ -117,22 +117,39 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <WrapPanel Grid.Row="0">
+                        <TextBlock Text="队伍名" />
+                        <TextBox x:Name="TeamNameBox" Width="140" />
+                        <TextBlock Text="队伍备注" />
+                        <TextBox x:Name="TeamNoteBox" Width="180" />
+                        <Button Content="新增/保存队伍" Click="SaveTeam_Click" />
+                        <Button Content="停用队伍" Click="DisableTeam_Click" />
+                    </WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,8,0,0">
                         <TextBlock Text="比赛名" />
                         <TextBox x:Name="MatchNameBox" Width="180" />
                         <TextBlock Text="主队" />
-                        <TextBox x:Name="HomeTeamBox" Width="140" Text="主队" />
+                        <ComboBox x:Name="HomeTeamCombo" DisplayMemberPath="DisplayName" Width="150" />
                         <TextBlock Text="客队" />
-                        <TextBox x:Name="AwayTeamBox" Width="140" Text="客队" />
+                        <ComboBox x:Name="AwayTeamCombo" DisplayMemberPath="DisplayName" Width="150" />
+                        <TextBlock Text="日期" />
+                        <TextBox x:Name="MatchDateBox" Width="110" />
+                        <TextBlock Text="地点" />
+                        <TextBox x:Name="MatchLocationBox" Width="120" />
+                        <TextBlock Text="备注" />
+                        <TextBox x:Name="MatchNoteBox" Width="160" />
+                        <TextBlock Text="节数" />
+                        <TextBox x:Name="PeriodCountBox" Width="50" Text="4" />
                         <TextBlock Text="每节秒数" />
                         <TextBox x:Name="PeriodLengthBox" Width="80" Text="600" />
                         <Button Content="创建比赛" Click="CreateMatch_Click" />
                         <TextBlock Text="当前比赛" />
                         <ComboBox x:Name="MatchCombo" DisplayMemberPath="DisplayName" SelectionChanged="MatchCombo_SelectionChanged" Width="280" />
                     </WrapPanel>
-                    <WrapPanel Grid.Row="1" Margin="0,8,0,8">
+                    <WrapPanel Grid.Row="2" Margin="0,8,0,8">
                         <TextBlock Text="球员" />
                         <ComboBox x:Name="RosterPlayerCombo" DisplayMemberPath="DisplayName" Width="220" />
                         <TextBlock Text="阵营" />
@@ -142,10 +159,28 @@
                         <CheckBox x:Name="StarterBox" Content="首发" Margin="8,4" VerticalAlignment="Center" />
                         <Button Content="加入名单" Click="AddRoster_Click" />
                     </WrapPanel>
-                    <DataGrid x:Name="RostersGrid"
-                              Grid.Row="2"
-                              AutoGenerateColumns="True"
-                              IsReadOnly="True" />
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="2*" />
+                        </Grid.ColumnDefinitions>
+                        <DataGrid x:Name="TeamsGrid"
+                                  Grid.Column="0"
+                                  Margin="0,0,8,0"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionChanged="TeamsGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="队伍" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="80" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid x:Name="RostersGrid"
+                                  Grid.Column="1"
+                                  AutoGenerateColumns="True"
+                                  IsReadOnly="True" />
+                    </Grid>
                 </Grid>
             </TabItem>
 

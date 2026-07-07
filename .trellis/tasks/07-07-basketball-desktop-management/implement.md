@@ -14,6 +14,10 @@
 - Replace JSON primary persistence with SQLite and schema versioning.
 - Keep legacy JSON import as a migration path.
 - Add player photo preview, delete confirmation, student-number uniqueness, and manual backup.
+- Preserve player/event consistency by disabling players with historical events.
+- Add migration framework and schema v2 team/match fields.
+- Add phase 2 team management, structured match creation, and roster validation.
+- Add phase 3 entry hardening: roster presence check before clock start, team disable confirmation/usage prompt, migration transaction, match note input, and README self-check wording.
 - Run available build/validation commands and report any SDK blockers.
 
 ## Validation

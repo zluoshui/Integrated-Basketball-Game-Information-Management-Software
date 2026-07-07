@@ -35,6 +35,18 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - Missing photo files must show a plain placeholder message instead of crashing.
 - Student numbers must be unique when provided.
 - Users must be able to manually back up the database and photo directory.
+- Players with historical match events must not be physically deleted; they must be disabled to preserve event consistency.
+- Database migration code must exist even for additive schema changes.
+- Corrupt player photo files must not crash the window.
+- Repeated backup clicks in the same second must create distinct backup folders.
+- Phase 2 must support creating, editing, and disabling teams.
+- Phase 2 match creation must select structured home and away teams, set date/location, period count, and period length.
+- Phase 2 roster setup must reject duplicate players, duplicate jersey numbers on one side, and players assigned to the wrong side when they have a team relationship.
+- Before the match clock starts, both home and away rosters must contain at least one player.
+- Disabling a team must show confirmation, and the prompt must state when the team is already used by players or matches.
+- Schema migrations must run inside a transaction.
+- Match creation must include a note field in the UI and persist it.
+- README self-check text must describe the current SQLite/team/backup coverage.
 - Out of scope: accounts, networking, cloud sync, multi-device collaboration, league rule engines, and installer packaging beyond project-level publish support.
 
 ## Acceptance Criteria
@@ -55,6 +67,18 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - [ ] Player photo preview works, and a missing file shows a non-crashing placeholder.
 - [ ] Duplicate non-empty student numbers are rejected.
 - [ ] Manual backup creates a timestamped copy of the database and photos.
+- [ ] Deleting a player with existing events disables the player instead of deleting event history.
+- [ ] `MigrateDatabase()` handles current schema upgrades.
+- [ ] Corrupt image files show a readable placeholder message.
+- [ ] Two quick backups do not fail due to folder name collision.
+- [ ] Teams can be created, edited, and disabled.
+- [ ] A match can be created by selecting two different active teams, date/location, period count, and period length.
+- [ ] Roster setup rejects duplicate players, same-side jersey conflicts, and wrong-team roster assignment.
+- [ ] Starting the clock is blocked when either side has an empty roster.
+- [ ] Team disable asks for confirmation and warns when the team is already used.
+- [ ] `MigrateDatabase()` wraps schema upgrades in a transaction.
+- [ ] Match notes can be entered from the match setup UI and saved.
+- [ ] README self-check coverage matches the current SQLite/team/backup behavior.
 
 ## Notes
 

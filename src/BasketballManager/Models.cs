@@ -17,6 +17,7 @@ public sealed class Player
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string StudentNumber { get; set; } = "";
+    public Guid? TeamId { get; set; }
     public string Team { get; set; } = "";
     public string Note { get; set; } = "";
     public string PhotoPath { get; set; } = "";
@@ -47,14 +48,22 @@ public sealed class Team
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
     public string Note { get; set; } = "";
+    public string Status { get; set; } = "启用";
+    public string DisplayName => Status == "启用" ? Name : $"{Name} ({Status})";
 }
 
 public sealed class Match
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
+    public Guid? HomeTeamId { get; set; }
+    public Guid? AwayTeamId { get; set; }
     public string HomeTeamName { get; set; } = "主队";
     public string AwayTeamName { get; set; } = "客队";
+    public DateTime? ScheduledAt { get; set; }
+    public string Location { get; set; } = "";
+    public string Note { get; set; } = "";
+    public int PeriodCount { get; set; } = 4;
     public int PeriodLengthSeconds { get; set; } = 600;
     public int CurrentPeriod { get; set; } = 1;
     public int RemainingSeconds { get; set; } = 600;

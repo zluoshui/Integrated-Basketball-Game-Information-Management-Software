@@ -7,7 +7,7 @@ namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
@@ -69,12 +69,13 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO players (id, name, student_number, team, note, photo_path, status, created_at, updated_at)
-                    VALUES ($id, $name, $student_number, $team, $note, $photo_path, $status, $created_at, $updated_at)
+                    INSERT INTO players (id, name, student_number, team_id, team, note, photo_path, status, created_at, updated_at)
+                    VALUES ($id, $name, $student_number, $team_id, $team, $note, $photo_path, $status, $created_at, $updated_at)
                     """,
                     ("$id", player.Id.ToString()),
                     ("$name", player.Name),
                     ("$student_number", player.StudentNumber),
+                    ("$team_id", ToText(player.TeamId)),
                     ("$team", player.Team),
                     ("$note", player.Note),
                     ("$photo_path", player.PhotoPath),
@@ -118,10 +119,11 @@ public sealed class DataStore
                 Execute(
                     connection,
                     transaction,
-                    "INSERT INTO teams (id, name, note) VALUES ($id, $name, $note)",
+                    "INSERT INTO teams (id, name, note, status) VALUES ($id, $name, $note, $status)",
                     ("$id", team.Id.ToString()),
                     ("$name", team.Name),
-                    ("$note", team.Note));
+                    ("$note", team.Note),
+                    ("$status", team.Status));
             }
 
             foreach (var match in data.Matches)
@@ -130,13 +132,19 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO matches (id, name, home_team_name, away_team_name, period_length_seconds, current_period, remaining_seconds, is_clock_running, last_clock_update_utc, created_at, ended_at)
-                    VALUES ($id, $name, $home_team_name, $away_team_name, $period_length_seconds, $current_period, $remaining_seconds, $is_clock_running, $last_clock_update_utc, $created_at, $ended_at)
+                    INSERT INTO matches (id, name, home_team_id, away_team_id, home_team_name, away_team_name, scheduled_at, location, note, period_count, period_length_seconds, current_period, remaining_seconds, is_clock_running, last_clock_update_utc, created_at, ended_at)
+                    VALUES ($id, $name, $home_team_id, $away_team_id, $home_team_name, $away_team_name, $scheduled_at, $location, $note, $period_count, $period_length_seconds, $current_period, $remaining_seconds, $is_clock_running, $last_clock_update_utc, $created_at, $ended_at)
                     """,
                     ("$id", match.Id.ToString()),
                     ("$name", match.Name),
+                    ("$home_team_id", ToText(match.HomeTeamId)),
+                    ("$away_team_id", ToText(match.AwayTeamId)),
                     ("$home_team_name", match.HomeTeamName),
                     ("$away_team_name", match.AwayTeamName),
+                    ("$scheduled_at", ToText(match.ScheduledAt)),
+                    ("$location", match.Location),
+                    ("$note", match.Note),
+                    ("$period_count", match.PeriodCount),
                     ("$period_length_seconds", match.PeriodLengthSeconds),
                     ("$current_period", match.CurrentPeriod),
                     ("$remaining_seconds", match.RemainingSeconds),
@@ -197,7 +205,14 @@ public sealed class DataStore
         Directory.CreateDirectory(DataDirectory);
         EnsureDatabase();
 
-        var backupDirectory = Path.Combine(DataDirectory, "backups", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
+        var backupDirectory = Path.Combine(DataDirectory, "backups", stamp);
+        var suffix = 1;
+        while (Directory.Exists(backupDirectory))
+        {
+            backupDirectory = Path.Combine(DataDirectory, "backups", $"{stamp}-{suffix}");
+            suffix++;
+        }
         Directory.CreateDirectory(backupDirectory);
 
         SqliteConnection.ClearAllPools();
@@ -239,7 +254,10 @@ public sealed class DataStore
         {
             CreateSchema(connection);
             Execute(connection, null, "INSERT INTO schema_info (version) VALUES ($version)", ("$version", CurrentSchemaVersion));
+            return;
         }
+
+        MigrateDatabase(connection, version);
     }
 
     private AppData LoadFromDatabase()
@@ -253,6 +271,7 @@ public sealed class DataStore
                 Id = ReadGuid(reader, "id"),
                 Name = ReadString(reader, "name"),
                 StudentNumber = ReadString(reader, "student_number"),
+                TeamId = ReadNullableGuid(reader, "team_id"),
                 Team = ReadString(reader, "team"),
                 Note = ReadString(reader, "note"),
                 PhotoPath = ReadString(reader, "photo_path"),
@@ -278,14 +297,21 @@ public sealed class DataStore
             {
                 Id = ReadGuid(reader, "id"),
                 Name = ReadString(reader, "name"),
-                Note = ReadString(reader, "note")
+                Note = ReadString(reader, "note"),
+                Status = ReadString(reader, "status")
             }),
             Matches = Query(connection, "SELECT * FROM matches ORDER BY created_at", reader => new Match
             {
                 Id = ReadGuid(reader, "id"),
                 Name = ReadString(reader, "name"),
+                HomeTeamId = ReadNullableGuid(reader, "home_team_id"),
+                AwayTeamId = ReadNullableGuid(reader, "away_team_id"),
                 HomeTeamName = ReadString(reader, "home_team_name"),
                 AwayTeamName = ReadString(reader, "away_team_name"),
+                ScheduledAt = ReadDate(reader, "scheduled_at"),
+                Location = ReadString(reader, "location"),
+                Note = ReadString(reader, "note"),
+                PeriodCount = ReadInt(reader, "period_count"),
                 PeriodLengthSeconds = ReadInt(reader, "period_length_seconds"),
                 CurrentPeriod = ReadInt(reader, "current_period"),
                 RemainingSeconds = ReadInt(reader, "remaining_seconds"),
@@ -326,10 +352,11 @@ public sealed class DataStore
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 student_number TEXT NOT NULL DEFAULT '',
+                team_id TEXT NULL,
                 team TEXT NOT NULL DEFAULT '',
                 note TEXT NOT NULL DEFAULT '',
                 photo_path TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'Active',
+                status TEXT NOT NULL DEFAULT '在队',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -354,13 +381,19 @@ public sealed class DataStore
                 FOREIGN KEY (field_id) REFERENCES player_field_definitions(id) ON DELETE CASCADE
             )
             """);
-        Execute(connection, null, "CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, note TEXT NOT NULL DEFAULT '')");
+        Execute(connection, null, "CREATE TABLE teams (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '启用')");
         Execute(connection, null, """
             CREATE TABLE matches (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                home_team_id TEXT NULL,
+                away_team_id TEXT NULL,
                 home_team_name TEXT NOT NULL,
                 away_team_name TEXT NOT NULL,
+                scheduled_at TEXT NULL,
+                location TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                period_count INTEGER NOT NULL DEFAULT 4,
                 period_length_seconds INTEGER NOT NULL,
                 current_period INTEGER NOT NULL,
                 remaining_seconds INTEGER NOT NULL,
@@ -401,6 +434,54 @@ public sealed class DataStore
             """);
     }
 
+    private void MigrateDatabase(SqliteConnection connection, int version)
+    {
+        if (version >= CurrentSchemaVersion)
+        {
+            return;
+        }
+
+        using var transaction = connection.BeginTransaction();
+        if (version < 2)
+        {
+            AddColumnIfMissing(connection, transaction, "players", "team_id", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "teams", "status", "TEXT NOT NULL DEFAULT '启用'");
+            AddColumnIfMissing(connection, transaction, "matches", "home_team_id", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "matches", "away_team_id", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "matches", "scheduled_at", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "matches", "location", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(connection, transaction, "matches", "note", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(connection, transaction, "matches", "period_count", "INTEGER NOT NULL DEFAULT 4");
+            Execute(connection, transaction, "UPDATE schema_info SET version = 2");
+        }
+
+        transaction.Commit();
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection connection, SqliteTransaction transaction, string tableName, string columnName, string definition)
+    {
+        var columnExists = false;
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"PRAGMA table_info({tableName})";
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (ReadString(reader, "name").Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    columnExists = true;
+                    break;
+                }
+            }
+        }
+
+        if (!columnExists)
+        {
+            Execute(connection, transaction, $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition}");
+        }
+    }
+
     private AppData LoadLegacyJson()
     {
         var json = File.ReadAllText(LegacyJsonPath);
@@ -412,6 +493,7 @@ public sealed class DataStore
         Directory.CreateDirectory(DataDirectory);
         var connection = new SqliteConnection($"Data Source={DataPath}");
         connection.Open();
+        Execute(connection, null, "PRAGMA foreign_keys = ON");
         return connection;
     }
 
@@ -452,10 +534,16 @@ public sealed class DataStore
 
     private static string ToText(DateTime value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static string? ToText(DateTime? value) => value is null ? null : ToText(value.Value);
+    private static string? ToText(Guid? value) => value?.ToString();
     private static string ReadString(SqliteDataReader reader, string name) => reader[name] as string ?? "";
     private static int ReadInt(SqliteDataReader reader, string name) => Convert.ToInt32(reader[name], CultureInfo.InvariantCulture);
     private static bool ReadBool(SqliteDataReader reader, string name) => ReadInt(reader, name) != 0;
     private static Guid ReadGuid(SqliteDataReader reader, string name) => Guid.Parse(ReadString(reader, name));
+    private static Guid? ReadNullableGuid(SqliteDataReader reader, string name)
+    {
+        var value = ReadString(reader, name);
+        return Guid.TryParse(value, out var guid) ? guid : null;
+    }
 
     private static DateTime? ReadDate(SqliteDataReader reader, string name)
     {

@@ -33,14 +33,16 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 
 ### 3. Contracts
 - `schema_info(version INTEGER NOT NULL)` stores the schema version.
-- Schema version `1` owns `players`, `player_field_definitions`, `player_field_values`, `teams`, `matches`, `match_rosters`, and `match_events`.
+- Schema version `1` owns the initial `players`, `player_field_definitions`, `player_field_values`, `teams`, `matches`, `match_rosters`, and `match_events` tables.
+- Schema version `2` adds structured team references for players/matches, team status, and match scheduling fields.
 - IDs are stored as `TEXT` GUID strings.
 - Dates are stored as round-trip UTC text via `DateTime.ToString("O")`.
 - Booleans are stored as `INTEGER` values `0` or `1`.
 - Photo paths stored in the database must be relative to the app data directory.
 
 ### 4. Validation & Error Matrix
-- Missing database -> create schema version 1.
+- Missing database -> create the latest schema version.
+- Existing version lower than current -> run `MigrateDatabase()` and update `schema_info`.
 - Empty SQLite plus existing JSON -> import JSON then save into SQLite.
 - Duplicate non-empty student number -> reject before save.
 - Database read/write failure -> throw `InvalidOperationException` with the database path and original message.
@@ -89,6 +91,9 @@ transaction.Commit();
 <!-- How to create and run migrations -->
 
 - Add schema changes by incrementing `CurrentSchemaVersion`.
+- Put version-to-version changes in `MigrateDatabase()`.
+- Wrap each migration run in one SQLite transaction and update `schema_info` only after all DDL/data changes succeed.
+- Use idempotent helpers such as `AddColumnIfMissing()` for additive migrations.
 - Keep existing data migration in `EnsureDatabase`; do not drop user data.
 - Preserve legacy JSON import until existing users have had a clear migration window.
 
@@ -111,3 +116,4 @@ transaction.Commit();
 - Do not hard-code absolute user paths for the database or photos.
 - Do not store original photo source paths; import photos and store relative paths.
 - Do not ignore NuGet vulnerability warnings on SQLite native dependencies.
+- Do not physically delete players that already have match events; mark them inactive instead.

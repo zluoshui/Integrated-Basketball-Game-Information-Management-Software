@@ -15,7 +15,7 @@ Legacy JSON remains only as a one-time import path when an existing JSON file is
 - UI edits mutate an in-memory `AppData` object through `DataStore`.
 - Player and match lists bind to observable collections.
 - Score table buttons append `MatchEvent` records.
-- Derived score, team fouls, timeout counts, and player statistics are recomputed from event history after each event or undo.
+- Derived score, team fouls, timeout counts, and player statistics are recomputed from effective event history; voided events stay in the log but are excluded from projections.
 - Clock state uses a dispatcher timer and elapsed wall-clock deltas instead of subtracting exactly one second per tick.
 - Match status is explicit on the `Match` model and persisted in SQLite.
 - On startup, any match that was still marked as running is automatically paused and the operator is told what happened.
@@ -39,5 +39,7 @@ Legacy JSON remains only as a one-time import path when an existing JSON file is
 - Clock start validation lives at the score table entry point so incomplete rosters cannot start timing.
 - Event recording is allowed only while the selected match is running; this keeps status control understandable for the operator during phase 3.
 - Next-period is disabled while the clock is running; period transitions should happen after pause or interval state.
-- Finished matches do not directly remove historical events. Future correction support should create explicit void/correction records instead of deleting audit history.
+- Finished matches and active matches do not directly remove historical events. Corrections mark events as voided with reason/time/operator metadata.
+- CSV export is generated locally from the same event log and statistics projection used by the UI.
+- CSV export writes directly to the configured export directory. The default is the project-level `exports` folder; user changes are stored under app data as `export-directory.txt`.
 - Phase 4 still uses code-behind to stay small, but `ClockService` and `MatchService` are the next extraction points for testable state transitions.

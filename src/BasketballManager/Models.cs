@@ -96,6 +96,10 @@ public sealed class MatchEvent
     public int Period { get; set; }
     public int ClockSecondsRemaining { get; set; }
     public string Note { get; set; } = "";
+    public bool IsVoided { get; set; }
+    public DateTime? VoidedAt { get; set; }
+    public string VoidReason { get; set; } = "";
+    public string VoidedBy { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

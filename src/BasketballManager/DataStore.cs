@@ -7,7 +7,7 @@ namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
@@ -23,6 +23,7 @@ public sealed class DataStore
     public string DataPath => Path.Combine(DataDirectory, "basketball.db");
     public string LegacyJsonPath => Path.Combine(DataDirectory, "basketball-data.json");
     public string PhotoDirectory => Path.Combine(DataDirectory, "photos");
+    public string ExportDirectorySettingsPath => Path.Combine(DataDirectory, "export-directory.txt");
 
     public AppData Load()
     {
@@ -180,8 +181,8 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO match_events (id, match_id, player_id, side, kind, points, period, clock_seconds_remaining, note, created_at)
-                    VALUES ($id, $match_id, $player_id, $side, $kind, $points, $period, $clock_seconds_remaining, $note, $created_at)
+                    INSERT INTO match_events (id, match_id, player_id, side, kind, points, period, clock_seconds_remaining, note, is_voided, voided_at, void_reason, voided_by, created_at)
+                    VALUES ($id, $match_id, $player_id, $side, $kind, $points, $period, $clock_seconds_remaining, $note, $is_voided, $voided_at, $void_reason, $voided_by, $created_at)
                     """,
                     ("$id", item.Id.ToString()),
                     ("$match_id", item.MatchId.ToString()),
@@ -192,6 +193,10 @@ public sealed class DataStore
                     ("$period", item.Period),
                     ("$clock_seconds_remaining", item.ClockSecondsRemaining),
                     ("$note", item.Note),
+                    ("$is_voided", item.IsVoided ? 1 : 0),
+                    ("$voided_at", ToText(item.VoidedAt)),
+                    ("$void_reason", item.VoidReason),
+                    ("$voided_by", item.VoidedBy),
                     ("$created_at", ToText(item.CreatedAt)));
             }
 
@@ -244,6 +249,69 @@ public sealed class DataStore
         return string.IsNullOrWhiteSpace(relativePath)
             ? ""
             : Path.Combine(DataDirectory, relativePath);
+    }
+
+    public string LoadExportDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(DataDirectory);
+            var configuredDirectory = File.Exists(ExportDirectorySettingsPath)
+                ? File.ReadAllText(ExportDirectorySettingsPath).Trim()
+                : "";
+            var exportDirectory = string.IsNullOrWhiteSpace(configuredDirectory)
+                ? GetDefaultExportDirectory()
+                : configuredDirectory;
+            Directory.CreateDirectory(exportDirectory);
+            return exportDirectory;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"无法读取或创建导出目录设置: {ExportDirectorySettingsPath}. {ex.Message}", ex);
+        }
+    }
+
+    public void SaveExportDirectory(string exportDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(exportDirectory))
+        {
+            throw new InvalidOperationException("导出目录不能为空。");
+        }
+
+        try
+        {
+            Directory.CreateDirectory(DataDirectory);
+            Directory.CreateDirectory(exportDirectory);
+            File.WriteAllText(ExportDirectorySettingsPath, exportDirectory);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"无法保存导出目录设置: {ExportDirectorySettingsPath}. {ex.Message}", ex);
+        }
+    }
+
+    private static string GetDefaultExportDirectory()
+    {
+        var projectRoot = FindProjectRoot(Environment.CurrentDirectory)
+            ?? FindProjectRoot(AppContext.BaseDirectory)
+            ?? AppContext.BaseDirectory;
+        return Path.Combine(projectRoot, "exports");
+    }
+
+    private static string? FindProjectRoot(string startDirectory)
+    {
+        var directory = new DirectoryInfo(startDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "BasketballManager.sln")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     private void EnsureDatabase()
@@ -344,6 +412,10 @@ public sealed class DataStore
                 Period = ReadInt(reader, "period"),
                 ClockSecondsRemaining = ReadInt(reader, "clock_seconds_remaining"),
                 Note = ReadString(reader, "note"),
+                IsVoided = ReadBool(reader, "is_voided"),
+                VoidedAt = ReadDate(reader, "voided_at"),
+                VoidReason = ReadString(reader, "void_reason"),
+                VoidedBy = ReadString(reader, "voided_by"),
                 CreatedAt = ReadDate(reader, "created_at") ?? DateTime.UtcNow
             })
         };
@@ -432,6 +504,10 @@ public sealed class DataStore
                 period INTEGER NOT NULL,
                 clock_seconds_remaining INTEGER NOT NULL,
                 note TEXT NOT NULL DEFAULT '',
+                is_voided INTEGER NOT NULL DEFAULT 0,
+                voided_at TEXT NULL,
+                void_reason TEXT NOT NULL DEFAULT '',
+                voided_by TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
                 FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
@@ -464,6 +540,15 @@ public sealed class DataStore
         {
             AddColumnIfMissing(connection, transaction, "matches", "status", "TEXT NOT NULL DEFAULT 'NotStarted'");
             Execute(connection, transaction, "UPDATE schema_info SET version = 3");
+        }
+
+        if (version < 4)
+        {
+            AddColumnIfMissing(connection, transaction, "match_events", "is_voided", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(connection, transaction, "match_events", "voided_at", "TEXT NULL");
+            AddColumnIfMissing(connection, transaction, "match_events", "void_reason", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(connection, transaction, "match_events", "voided_by", "TEXT NOT NULL DEFAULT ''");
+            Execute(connection, transaction, "UPDATE schema_info SET version = 4");
         }
 
         transaction.Commit();

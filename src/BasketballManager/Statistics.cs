@@ -18,7 +18,7 @@ public static class Statistics
                 };
             });
 
-        foreach (var item in data.Events.Where(e => e.MatchId == match.Id).OrderBy(e => e.CreatedAt))
+        foreach (var item in data.Events.Where(e => e.MatchId == match.Id && !e.IsVoided).OrderBy(e => e.CreatedAt))
         {
             if (!statsByPlayer.TryGetValue(item.PlayerId, out var playerStats))
             {

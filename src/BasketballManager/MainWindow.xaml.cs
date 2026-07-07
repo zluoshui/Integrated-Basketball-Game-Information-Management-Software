@@ -1,5 +1,6 @@
 using System.IO;
 using System.Globalization;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
@@ -13,12 +14,15 @@ public partial class MainWindow : Window
     private readonly DataStore _store = new();
     private readonly DispatcherTimer _timer = new();
     private AppData _data;
+    private string _exportDirectory = "";
 
     public MainWindow()
     {
         InitializeComponent();
 
         _data = LoadData();
+        _exportDirectory = LoadExportDirectory();
+        RefreshExportDirectoryText();
         PauseRunningMatchesAfterRestart();
         PlayerStatusCombo.ItemsSource = new[] { "在队", "离队", "停用" };
         PlayerStatusCombo.SelectedItem = "在队";
@@ -26,6 +30,10 @@ public partial class MainWindow : Window
         RosterSideCombo.SelectedItem = TeamSide.Home;
         ScoreboardSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         ScoreboardSideCombo.SelectedItem = TeamSide.Home;
+        EventFilterSideCombo.ItemsSource = new[] { "全部", "主队", "客队" };
+        EventFilterSideCombo.SelectedIndex = 0;
+        EventFilterKindCombo.ItemsSource = new object[] { "全部" }.Concat(Enum.GetValues<MatchEventKind>().Cast<object>()).ToList();
+        EventFilterKindCombo.SelectedIndex = 0;
 
         _timer.Interval = TimeSpan.FromMilliseconds(250);
         _timer.Tick += (_, _) =>
@@ -229,27 +237,96 @@ public partial class MainWindow : Window
     private void RefreshEvents()
     {
         var match = CurrentMatch;
-        EventsGrid.ItemsSource = match is null
-            ? null
-            : _data.Events
-                .Where(item => item.MatchId == match.Id)
-                .OrderByDescending(item => item.CreatedAt)
-                .Select(item =>
+        if (match is null)
+        {
+            TeamStatsGrid.ItemsSource = null;
+            EventsGrid.ItemsSource = null;
+            return;
+        }
+
+        var projection = Statistics.Compute(_data, match);
+        TeamStatsGrid.ItemsSource = new[]
+        {
+            new
+            {
+                队伍 = match.HomeTeamName,
+                比分 = projection.HomeScore,
+                犯规 = projection.HomeFouls,
+                暂停 = projection.HomeTimeouts,
+                篮板 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Rebounds),
+                助攻 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Assists),
+                抢断 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Steals),
+                盖帽 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Blocks),
+                失误 = projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Turnovers)
+            },
+            new
+            {
+                队伍 = match.AwayTeamName,
+                比分 = projection.AwayScore,
+                犯规 = projection.AwayFouls,
+                暂停 = projection.AwayTimeouts,
+                篮板 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Rebounds),
+                助攻 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Assists),
+                抢断 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Steals),
+                盖帽 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Blocks),
+                失误 = projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Turnovers)
+            }
+        };
+
+        EventsGrid.ItemsSource = FilterEvents(match)
+            .OrderByDescending(item => item.CreatedAt)
+            .Select(item =>
+            {
+                var player = _data.Players.FirstOrDefault(p => p.Id == item.PlayerId);
+                return new
                 {
-                    var player = _data.Players.FirstOrDefault(p => p.Id == item.PlayerId);
-                    return new
-                    {
-                        时间 = item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                        节次 = item.Period,
-                        表钟 = FormatSeconds(item.ClockSecondsRemaining),
-                        队伍 = item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                        球员 = player?.DisplayName ?? "未知球员",
-                        事件 = EventText(item),
-                        分值 = item.Points,
-                        备注 = item.Note
-                    };
-                })
-                .ToList();
+                    状态 = item.IsVoided ? "作废" : "有效",
+                    时间 = item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    节次 = item.Period,
+                    表钟 = FormatSeconds(item.ClockSecondsRemaining),
+                    队伍 = item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
+                    球员 = player?.DisplayName ?? "未知球员",
+                    事件 = EventText(item),
+                    分值 = item.Points,
+                    备注 = item.Note,
+                    作废时间 = item.VoidedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "",
+                    作废原因 = item.VoidReason,
+                    操作人 = item.VoidedBy
+                };
+            })
+            .ToList();
+    }
+
+    private IEnumerable<MatchEvent> FilterEvents(Match match)
+    {
+        var events = _data.Events.Where(item => item.MatchId == match.Id);
+        var sideFilter = EventFilterSideCombo.SelectedItem?.ToString() ?? "全部";
+        if (sideFilter == "主队")
+        {
+            events = events.Where(item => item.Side == TeamSide.Home);
+        }
+        else if (sideFilter == "客队")
+        {
+            events = events.Where(item => item.Side == TeamSide.Away);
+        }
+
+        if (EventFilterKindCombo.SelectedItem is MatchEventKind kind)
+        {
+            events = events.Where(item => item.Kind == kind);
+        }
+
+        var playerFilter = EventPlayerFilterBox.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(playerFilter))
+        {
+            events = events.Where(item =>
+            {
+                var player = _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+                return player?.DisplayName.Contains(playerFilter, StringComparison.OrdinalIgnoreCase) == true
+                    || player?.Team.Contains(playerFilter, StringComparison.OrdinalIgnoreCase) == true;
+            });
+        }
+
+        return events;
     }
 
     private static string FormatSeconds(int seconds)
@@ -504,6 +581,24 @@ public partial class MainWindow : Window
         {
             MessageBox.Show($"备份失败：{ex.Message}", "备份失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private string LoadExportDirectory()
+    {
+        try
+        {
+            return _store.LoadExportDirectory();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "导出目录读取失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            return Path.Combine(AppContext.BaseDirectory, "exports");
+        }
+    }
+
+    private void RefreshExportDirectoryText()
+    {
+        ExportDirectoryText.Text = $"导出目录：{_exportDirectory}";
     }
 
     private void UpdatePhotoPreview()
@@ -764,6 +859,16 @@ public partial class MainWindow : Window
     private void ScoreboardSideCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshActivePlayers();
+    }
+
+    private void EventFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        RefreshEvents();
+    }
+
+    private void EventFilter_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        RefreshEvents();
     }
 
     private void StartClock_Click(object sender, RoutedEventArgs e)
@@ -1040,14 +1145,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (match.Status == MatchStatus.Finished)
+        var reason = VoidReasonBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
         {
-            MessageBox.Show("已结束比赛的事件不允许直接撤销。后续更正应通过作废/更正记录保留审计痕迹。", "撤销规则", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("作废事件必须填写原因，便于赛后复核。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         var last = _data.Events
-            .Where(item => item.MatchId == match.Id)
+            .Where(item => item.MatchId == match.Id && !item.IsVoided)
             .OrderByDescending(item => item.CreatedAt)
             .FirstOrDefault();
 
@@ -1058,8 +1164,8 @@ public partial class MainWindow : Window
 
         var player = _data.Players.FirstOrDefault(item => item.Id == last.PlayerId);
         var result = MessageBox.Show(
-            $"确认撤销上一条事件？\n第 {last.Period} 节 {FormatSeconds(last.ClockSecondsRemaining)}，{TeamSideText(last.Side)}，{player?.DisplayName ?? "未知球员"}，{EventText(last)}。",
-            "确认撤销事件",
+            $"确认作废上一条有效事件？\n第 {last.Period} 节 {FormatSeconds(last.ClockSecondsRemaining)}，{TeamSideText(last.Side)}，{player?.DisplayName ?? "未知球员"}，{EventText(last)}。\n\n事件会保留在日志中，并标记为作废。",
+            "确认作废事件",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes)
@@ -1067,10 +1173,159 @@ public partial class MainWindow : Window
             return;
         }
 
-        _data.Events.Remove(last);
+        last.IsVoided = true;
+        last.VoidedAt = DateTime.UtcNow;
+        last.VoidReason = reason;
+        last.VoidedBy = VoidOperatorBox.Text.Trim();
+        VoidReasonBox.Text = "";
         SaveData();
         RefreshScoreboard();
         RefreshEvents();
+    }
+
+    private void ExportCsv_Click(object sender, RoutedEventArgs e)
+    {
+        var match = CurrentMatch;
+        if (match is null)
+        {
+            MessageBox.Show("请先选择要导出的比赛。", "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var safeName = string.Join("_", match.Name.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(safeName))
+        {
+            safeName = "match";
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_exportDirectory);
+            var exportPath = Path.Combine(_exportDirectory, $"{safeName}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.csv");
+            File.WriteAllText(exportPath, "\uFEFF" + BuildMatchCsv(match), Encoding.UTF8);
+            MessageBox.Show($"导出完成：{exportPath}", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"导出失败：{ex.Message}", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SetExportDirectory_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择 CSV 导出目录",
+            InitialDirectory = Directory.Exists(_exportDirectory) ? _exportDirectory : AppContext.BaseDirectory
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _store.SaveExportDirectory(dialog.FolderName);
+            _exportDirectory = dialog.FolderName;
+            RefreshExportDirectoryText();
+            MessageBox.Show($"导出目录已设置为：{_exportDirectory}", "导出目录", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "导出目录设置失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private string BuildMatchCsv(Match match)
+    {
+        var projection = Statistics.Compute(_data, match);
+        var builder = new StringBuilder();
+        AppendCsvRow(builder, "比赛名称", match.Name);
+        AppendCsvRow(builder, "主队", match.HomeTeamName);
+        AppendCsvRow(builder, "客队", match.AwayTeamName);
+        AppendCsvRow(builder, "日期", match.ScheduledAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "");
+        AppendCsvRow(builder, "地点", match.Location);
+        AppendCsvRow(builder, "状态", MatchStatusText(match.Status));
+        AppendCsvRow(builder, "备注", match.Note);
+        builder.AppendLine();
+
+        AppendCsvRow(builder, "球队统计");
+        AppendCsvRow(builder, "队伍", "比分", "犯规", "暂停", "篮板", "助攻", "抢断", "盖帽", "失误");
+        AppendCsvRow(
+            builder,
+            match.HomeTeamName,
+            projection.HomeScore.ToString(CultureInfo.InvariantCulture),
+            projection.HomeFouls.ToString(CultureInfo.InvariantCulture),
+            projection.HomeTimeouts.ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Rebounds).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Assists).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Steals).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Blocks).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.HomeTeamName).Sum(item => item.Turnovers).ToString(CultureInfo.InvariantCulture));
+        AppendCsvRow(
+            builder,
+            match.AwayTeamName,
+            projection.AwayScore.ToString(CultureInfo.InvariantCulture),
+            projection.AwayFouls.ToString(CultureInfo.InvariantCulture),
+            projection.AwayTimeouts.ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Rebounds).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Assists).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Steals).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Blocks).ToString(CultureInfo.InvariantCulture),
+            projection.PlayerStats.Where(item => item.Side == match.AwayTeamName).Sum(item => item.Turnovers).ToString(CultureInfo.InvariantCulture));
+        builder.AppendLine();
+
+        AppendCsvRow(builder, "球员技术统计");
+        AppendCsvRow(builder, "队伍", "球员", "得分", "犯规", "篮板", "助攻", "抢断", "盖帽", "失误", "暂停申请");
+        foreach (var item in projection.PlayerStats)
+        {
+            AppendCsvRow(
+                builder,
+                item.Side,
+                item.PlayerName,
+                item.Points.ToString(CultureInfo.InvariantCulture),
+                item.Fouls.ToString(CultureInfo.InvariantCulture),
+                item.Rebounds.ToString(CultureInfo.InvariantCulture),
+                item.Assists.ToString(CultureInfo.InvariantCulture),
+                item.Steals.ToString(CultureInfo.InvariantCulture),
+                item.Blocks.ToString(CultureInfo.InvariantCulture),
+                item.Turnovers.ToString(CultureInfo.InvariantCulture),
+                item.TimeoutRequests.ToString(CultureInfo.InvariantCulture));
+        }
+        builder.AppendLine();
+
+        AppendCsvRow(builder, "事件流水");
+        AppendCsvRow(builder, "状态", "时间", "节次", "表钟", "队伍", "球员", "事件", "分值", "备注", "作废时间", "作废原因", "操作人");
+        foreach (var item in _data.Events.Where(item => item.MatchId == match.Id).OrderBy(item => item.CreatedAt))
+        {
+            var player = _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+            AppendCsvRow(
+                builder,
+                item.IsVoided ? "作废" : "有效",
+                item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                item.Period.ToString(CultureInfo.InvariantCulture),
+                FormatSeconds(item.ClockSecondsRemaining),
+                item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
+                player?.DisplayName ?? "未知球员",
+                EventText(item),
+                item.Points.ToString(CultureInfo.InvariantCulture),
+                item.Note,
+                item.VoidedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "",
+                item.VoidReason,
+                item.VoidedBy);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendCsvRow(StringBuilder builder, params string[] values)
+    {
+        builder.AppendLine(string.Join(",", values.Select(EscapeCsv)));
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)

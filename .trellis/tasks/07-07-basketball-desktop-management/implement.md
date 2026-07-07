@@ -21,6 +21,8 @@
 - Add phase 3 clock controls: persisted match status, next-period, finish-match, startup auto-pause recovery, status-driven button enablement, and event-recording guard.
 - Add phase 4 entry safeguards: disable/guard next-period while running, confirm reset-current-period, and define no-direct-undo for finished matches.
 - Add phase 4 event recording improvements: event notes, home/away player filter, event-log note display, and broader self-check coverage for player statistics.
+- Add phase 5 logs/reports: audit-style event voiding, event filters, team statistics, CSV export, and self-check coverage for voided event projection.
+- Change CSV export to use a preset export directory with project-level `exports` as the default; clicking export writes directly to that location.
 - Run available build/validation commands and report any SDK blockers.
 
 ## Validation

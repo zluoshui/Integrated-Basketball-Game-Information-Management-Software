@@ -9,3 +9,6 @@ obj/
 TestResults/
 
 .fake
+.verify-phase5-data-*
+exports/*
+!exports/.gitkeep

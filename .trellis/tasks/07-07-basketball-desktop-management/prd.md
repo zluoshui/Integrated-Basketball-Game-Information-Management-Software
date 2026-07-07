@@ -22,7 +22,7 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - Match events must record player-scoped 1/2/3 point scores, fouls, rebounds, assists, steals, blocks, turnovers, and timeout requests.
 - Timeout requests must belong to a player and also increment the player's team timeout count.
 - All match mutations must append an event log entry.
-- Undo must remove the latest event and recompute visible score/statistics from remaining events.
+- Undo/correction must preserve event history by marking events as voided with reason/time/operator metadata, then recompute visible score/statistics from effective events.
 - Data must persist locally after application restart.
 - Adding a player must leave the form ready for the next new player in the same app session.
 - A local batch file must start the app for testing without packaging.
@@ -56,6 +56,11 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - Finished matches must not allow direct event undo; later corrections should use a void/correction record so audit history is preserved.
 - Phase 4 must support event notes and persist them in the event log.
 - Phase 4 must make home/away player selection clearer than one unfiltered player list.
+- Phase 5 must show match logs with filters by side, event kind, and player text.
+- Phase 5 must show team statistics and player statistics derived from effective event history.
+- Phase 5 must export a CSV report containing match info, team statistics, player statistics, and full event log.
+- CSV export must use a preset export directory. The default directory is the project-level `exports` folder, and clicking export must write directly there without asking for a file path.
+- Voided events must remain in the event log but be excluded from score and player/team statistics.
 - Out of scope: accounts, networking, cloud sync, multi-device collaboration, league rule engines, and installer packaging beyond project-level publish support.
 
 ## Acceptance Criteria
@@ -64,7 +69,7 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - [ ] The app can create a match and add players to home and away rosters.
 - [ ] The app can start, pause, resume, and reset the match clock.
 - [ ] Recording score, foul, rebound, assist, steal, block, turnover, and timeout events updates score table state and player statistics.
-- [ ] Undoing the last event rolls back score table state and player statistics.
+- [ ] Voiding the last effective event rolls back score table state and player statistics while preserving audit metadata.
 - [ ] Closing and reopening the app keeps players, custom fields, matches, rosters, and events.
 - [ ] Multiple players can be added in one app session without overwriting the previous player.
 - [ ] A root-level batch file starts the local test app.
@@ -98,6 +103,11 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - [ ] Finished matches show a clear no-direct-undo rule.
 - [ ] Event records can include a note and the note survives restart.
 - [ ] Score table recording can filter active players by home/away side.
+- [ ] Event log can be filtered by side, event kind, and player text.
+- [ ] Team statistics and player statistics ignore voided events.
+- [ ] CSV export opens in common office software and includes Chinese-readable match data, statistics, and full event audit log.
+- [ ] CSV export location can be preset, defaults to the project `exports` folder, and export does not reopen a save dialog.
+- [ ] Voided events keep original event data plus void time, reason, and optional operator.
 
 ## Notes
 

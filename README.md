@@ -43,7 +43,7 @@ dotnet run --project .\src\BasketballManager\BasketballManager.csproj
 dotnet run --project .\src\BasketballManager\BasketballManager.csproj -- --self-check
 ```
 
-自检覆盖统计计算、事件撤销、SQLite 数据读写、队伍/比赛关联、比赛状态/节次/表钟持久化、事件备注、主客队统计、连续备份和本地应用数据目录自检。
+自检覆盖统计计算、审计式事件作废、SQLite 数据读写、队伍/比赛关联、比赛状态/节次/表钟持久化、事件备注、主客队统计、CSV 相关数据源、连续备份和本地应用数据目录自检。
 
 ## 发布
 
@@ -73,6 +73,9 @@ src\BasketballManager\bin\Release\net10.0-windows\win-x64\publish\
 - `basketball-data.json`：旧版本 JSON 数据文件；首次打开时会自动导入到 SQLite。
 - `photos\`：导入后的球员照片。
 - `backups\`：手动备份目录。
+- 项目内 `exports\`：CSV 默认导出目录。
+
+CSV 导出位置可在“比赛日志”页点击“设置导出位置”修改。未修改时默认写入项目根目录的 `exports\`；点击“导出 CSV”会直接生成文件，不再弹出另存为窗口。
 
 备份时可点击应用内“备份数据”，或复制整个 `%AppData%\BasketballManager\` 目录。
 
@@ -103,8 +106,16 @@ src\BasketballManager\bin\Release\net10.0-windows\win-x64\publish\
 - 记录事件时可按主队/客队筛选本场球员，减少现场误选。
 - 事件支持填写备注，比赛日志会显示备注并持久化。
 - 重置本节需要二次确认；运行中不能直接进入下一节。
-- 已结束比赛不允许直接撤销事件，后续更正应通过作废/更正记录保留审计痕迹。
+- 事件更正采用审计式作废：保留原事件，记录作废时间、原因和可选操作人。
 - 后续建议抽出 `ClockService` / `MatchService`，把状态流转和事件校验从窗口代码中拆出，便于测试。
+
+## 阶段 5 状态
+
+- 比赛日志支持按队伍、事件类型和球员文本筛选。
+- 日志显示有效/作废状态、作废时间、作废原因和操作人。
+- 球队统计和球员统计由有效事件流水推导，作废事件不计入统计。
+- 支持导出 CSV，默认导出到项目内 `exports\`，可单独设置导出目录；点击导出会直接写入预设目录。
+- 数据库 schema 已升级到 v4，持久化事件作废审计字段。
 
 ## 阶段 0 状态
 

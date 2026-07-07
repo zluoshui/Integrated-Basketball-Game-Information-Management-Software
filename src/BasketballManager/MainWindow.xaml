@@ -257,15 +257,42 @@
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <WrapPanel Grid.Row="0">
-                        <Button Content="撤销上一条事件" Click="UndoLastEvent_Click" />
+                        <Button Content="作废上一条有效事件" Click="UndoLastEvent_Click" />
+                        <TextBlock Text="作废原因" />
+                        <TextBox x:Name="VoidReasonBox" Width="180" />
+                        <TextBlock Text="操作人" />
+                        <TextBox x:Name="VoidOperatorBox" Width="120" />
+                        <Button Content="设置导出位置" Click="SetExportDirectory_Click" />
+                        <Button Content="导出 CSV" Click="ExportCsv_Click" />
+                        <TextBlock x:Name="ExportDirectoryText" Text="导出目录未设置" />
                     </WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,4,0,8">
+                        <TextBlock Text="队伍筛选" />
+                        <ComboBox x:Name="EventFilterSideCombo" Width="100" SelectionChanged="EventFilter_Changed" />
+                        <TextBlock Text="事件筛选" />
+                        <ComboBox x:Name="EventFilterKindCombo" Width="120" SelectionChanged="EventFilter_Changed" />
+                        <TextBlock Text="球员筛选" />
+                        <TextBox x:Name="EventPlayerFilterBox" Width="160" TextChanged="EventFilter_TextChanged" />
+                    </WrapPanel>
+                    <Grid Grid.Row="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <DataGrid x:Name="TeamStatsGrid"
+                                  Grid.Row="0"
+                                  MaxHeight="120"
+                                  AutoGenerateColumns="True"
+                                  IsReadOnly="True" />
                     <DataGrid x:Name="EventsGrid"
                               Grid.Row="1"
                               AutoGenerateColumns="True"
                               IsReadOnly="True" />
+                    </Grid>
                 </Grid>
             </TabItem>
         </TabControl>

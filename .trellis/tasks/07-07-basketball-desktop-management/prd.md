@@ -47,6 +47,15 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - Schema migrations must run inside a transaction.
 - Match creation must include a note field in the UI and persist it.
 - README self-check text must describe the current SQLite/team/backup coverage.
+- Phase 3 must support match clock statuses: not started, running, paused, interval, and finished.
+- Phase 3 must support next-period and finish-match controls.
+- Clock state must persist and reopening the app must handle previously running matches with a clear automatic pause strategy.
+- Match events must be blocked unless the selected match is running.
+- Running matches must not advance to the next period by accidental click; the next-period control is disabled while running and guarded in code.
+- Resetting the current period clock must require confirmation.
+- Finished matches must not allow direct event undo; later corrections should use a void/correction record so audit history is preserved.
+- Phase 4 must support event notes and persist them in the event log.
+- Phase 4 must make home/away player selection clearer than one unfiltered player list.
 - Out of scope: accounts, networking, cloud sync, multi-device collaboration, league rule engines, and installer packaging beyond project-level publish support.
 
 ## Acceptance Criteria
@@ -79,7 +88,18 @@ Build a Windows 10/11 desktop MVP for offline basketball player management and s
 - [ ] `MigrateDatabase()` wraps schema upgrades in a transaction.
 - [ ] Match notes can be entered from the match setup UI and saved.
 - [ ] README self-check coverage matches the current SQLite/team/backup behavior.
+- [ ] Scoreboard shows current match status and enables controls according to that status.
+- [ ] Next-period advances the period and resets the period clock.
+- [ ] Finish-match stops timing and prevents further clock/event recording.
+- [ ] Reopening after an active clock automatically pauses the match and shows a clear prompt.
+- [ ] SQLite persists match status, period, and remaining clock seconds.
+- [ ] Running matches cannot advance to the next period without first stopping the clock.
+- [ ] Reset current period asks for confirmation.
+- [ ] Finished matches show a clear no-direct-undo rule.
+- [ ] Event records can include a note and the note survives restart.
+- [ ] Score table recording can filter active players by home/away side.
 
 ## Notes
 
 - Keep the implementation small. Prefer one WPF project, simple services, and no speculative plugin/module system.
+- After phase 4 behavior settles, extract clock/status transitions into `ClockService` and event/roster validation into `MatchService` so state-flow tests can run outside WPF.

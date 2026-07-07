@@ -35,10 +35,13 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - `schema_info(version INTEGER NOT NULL)` stores the schema version.
 - Schema version `1` owns the initial `players`, `player_field_definitions`, `player_field_values`, `teams`, `matches`, `match_rosters`, and `match_events` tables.
 - Schema version `2` adds structured team references for players/matches, team status, and match scheduling fields.
+- Schema version `3` adds persisted match status for clock control (`NotStarted`, `Running`, `Paused`, `Interval`, `Finished`).
 - IDs are stored as `TEXT` GUID strings.
 - Dates are stored as round-trip UTC text via `DateTime.ToString("O")`.
 - Booleans are stored as `INTEGER` values `0` or `1`.
 - Photo paths stored in the database must be relative to the app data directory.
+- Clock state must persist `current_period`, `remaining_seconds`, `status`, `is_clock_running`, and `last_clock_update_utc`.
+- Match event notes are part of the event log contract and must survive save/load round trips.
 
 ### 4. Validation & Error Matrix
 - Missing database -> create the latest schema version.
@@ -117,3 +120,4 @@ transaction.Commit();
 - Do not store original photo source paths; import photos and store relative paths.
 - Do not ignore NuGet vulnerability warnings on SQLite native dependencies.
 - Do not physically delete players that already have match events; mark them inactive instead.
+- Do not directly remove events from finished matches; later correction flows should preserve an audit trail.

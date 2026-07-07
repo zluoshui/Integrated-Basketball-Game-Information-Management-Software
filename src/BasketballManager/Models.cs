@@ -67,6 +67,7 @@ public sealed class Match
     public int PeriodLengthSeconds { get; set; } = 600;
     public int CurrentPeriod { get; set; } = 1;
     public int RemainingSeconds { get; set; } = 600;
+    public MatchStatus Status { get; set; } = MatchStatus.NotStarted;
     public bool IsClockRunning { get; set; }
     public DateTime? LastClockUpdateUtc { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -102,6 +103,15 @@ public enum TeamSide
 {
     Home,
     Away
+}
+
+public enum MatchStatus
+{
+    NotStarted,
+    Running,
+    Paused,
+    Interval,
+    Finished
 }
 
 public enum MatchEventKind

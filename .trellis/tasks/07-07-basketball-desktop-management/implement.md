@@ -18,6 +18,9 @@
 - Add migration framework and schema v2 team/match fields.
 - Add phase 2 team management, structured match creation, and roster validation.
 - Add phase 3 entry hardening: roster presence check before clock start, team disable confirmation/usage prompt, migration transaction, match note input, and README self-check wording.
+- Add phase 3 clock controls: persisted match status, next-period, finish-match, startup auto-pause recovery, status-driven button enablement, and event-recording guard.
+- Add phase 4 entry safeguards: disable/guard next-period while running, confirm reset-current-period, and define no-direct-undo for finished matches.
+- Add phase 4 event recording improvements: event notes, home/away player filter, event-log note display, and broader self-check coverage for player statistics.
 - Run available build/validation commands and report any SDK blockers.
 
 ## Validation

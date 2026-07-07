@@ -7,14 +7,16 @@ namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
     {
-        DataDirectory = dataDirectory ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "BasketballManager");
+        var overrideDirectory = Environment.GetEnvironmentVariable("BASKETBALL_MANAGER_DATA_DIR");
+        DataDirectory = dataDirectory
+            ?? (string.IsNullOrWhiteSpace(overrideDirectory)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasketballManager")
+                : overrideDirectory);
     }
 
     public string DataDirectory { get; }
@@ -132,8 +134,8 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO matches (id, name, home_team_id, away_team_id, home_team_name, away_team_name, scheduled_at, location, note, period_count, period_length_seconds, current_period, remaining_seconds, is_clock_running, last_clock_update_utc, created_at, ended_at)
-                    VALUES ($id, $name, $home_team_id, $away_team_id, $home_team_name, $away_team_name, $scheduled_at, $location, $note, $period_count, $period_length_seconds, $current_period, $remaining_seconds, $is_clock_running, $last_clock_update_utc, $created_at, $ended_at)
+                    INSERT INTO matches (id, name, home_team_id, away_team_id, home_team_name, away_team_name, scheduled_at, location, note, period_count, period_length_seconds, current_period, remaining_seconds, status, is_clock_running, last_clock_update_utc, created_at, ended_at)
+                    VALUES ($id, $name, $home_team_id, $away_team_id, $home_team_name, $away_team_name, $scheduled_at, $location, $note, $period_count, $period_length_seconds, $current_period, $remaining_seconds, $status, $is_clock_running, $last_clock_update_utc, $created_at, $ended_at)
                     """,
                     ("$id", match.Id.ToString()),
                     ("$name", match.Name),
@@ -148,6 +150,7 @@ public sealed class DataStore
                     ("$period_length_seconds", match.PeriodLengthSeconds),
                     ("$current_period", match.CurrentPeriod),
                     ("$remaining_seconds", match.RemainingSeconds),
+                    ("$status", match.Status.ToString()),
                     ("$is_clock_running", match.IsClockRunning ? 1 : 0),
                     ("$last_clock_update_utc", ToText(match.LastClockUpdateUtc)),
                     ("$created_at", ToText(match.CreatedAt)),
@@ -315,6 +318,7 @@ public sealed class DataStore
                 PeriodLengthSeconds = ReadInt(reader, "period_length_seconds"),
                 CurrentPeriod = ReadInt(reader, "current_period"),
                 RemainingSeconds = ReadInt(reader, "remaining_seconds"),
+                Status = ReadEnum<MatchStatus>(reader, "status"),
                 IsClockRunning = ReadBool(reader, "is_clock_running"),
                 LastClockUpdateUtc = ReadDate(reader, "last_clock_update_utc"),
                 CreatedAt = ReadDate(reader, "created_at") ?? DateTime.UtcNow,
@@ -397,6 +401,7 @@ public sealed class DataStore
                 period_length_seconds INTEGER NOT NULL,
                 current_period INTEGER NOT NULL,
                 remaining_seconds INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'NotStarted',
                 is_clock_running INTEGER NOT NULL,
                 last_clock_update_utc TEXT NULL,
                 created_at TEXT NOT NULL,
@@ -453,6 +458,12 @@ public sealed class DataStore
             AddColumnIfMissing(connection, transaction, "matches", "note", "TEXT NOT NULL DEFAULT ''");
             AddColumnIfMissing(connection, transaction, "matches", "period_count", "INTEGER NOT NULL DEFAULT 4");
             Execute(connection, transaction, "UPDATE schema_info SET version = 2");
+        }
+
+        if (version < 3)
+        {
+            AddColumnIfMissing(connection, transaction, "matches", "status", "TEXT NOT NULL DEFAULT 'NotStarted'");
+            Execute(connection, transaction, "UPDATE schema_info SET version = 3");
         }
 
         transaction.Commit();

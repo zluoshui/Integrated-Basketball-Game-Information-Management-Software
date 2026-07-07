@@ -19,10 +19,13 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         _data = LoadData();
+        PauseRunningMatchesAfterRestart();
         PlayerStatusCombo.ItemsSource = new[] { "在队", "离队", "停用" };
         PlayerStatusCombo.SelectedItem = "在队";
         RosterSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         RosterSideCombo.SelectedItem = TeamSide.Home;
+        ScoreboardSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
+        ScoreboardSideCombo.SelectedItem = TeamSide.Home;
 
         _timer.Interval = TimeSpan.FromMilliseconds(250);
         _timer.Tick += (_, _) =>
@@ -163,11 +166,12 @@ public partial class MainWindow : Window
             ? null
             : _data.Rosters
                 .Where(roster => roster.MatchId == match.Id)
+                .Where(roster => ScoreboardSideCombo.SelectedItem is not TeamSide side || roster.Side == side)
                 .Select(roster => _data.Players.FirstOrDefault(player => player.Id == roster.PlayerId))
                 .Where(player => player is not null)
-            .OrderBy(player => player!.Team)
-            .ThenBy(player => player!.Name)
-            .ToList();
+                .OrderBy(player => player!.Team)
+                .ThenBy(player => player!.Name)
+                .ToList();
     }
 
     private void RefreshScoreboard()
@@ -178,17 +182,48 @@ public partial class MainWindow : Window
             TimerText.Text = "00:00";
             ScoreText.Text = "0 - 0";
             PeriodText.Text = "未选择比赛";
+            StatusText.Text = "无比赛";
             FoulTimeoutText.Text = "0:0 / 0:0";
             StatsGrid.ItemsSource = null;
+            RefreshScoreboardControls(null);
             return;
         }
 
         var projection = Statistics.Compute(_data, match);
         TimerText.Text = FormatSeconds(match.RemainingSeconds);
         ScoreText.Text = $"{projection.HomeScore} - {projection.AwayScore}";
-        PeriodText.Text = $"第 {match.CurrentPeriod} 节";
+        PeriodText.Text = $"第 {match.CurrentPeriod} / {match.PeriodCount} 节";
+        StatusText.Text = MatchStatusText(match.Status);
         FoulTimeoutText.Text = $"{projection.HomeFouls}:{projection.AwayFouls} / {projection.HomeTimeouts}:{projection.AwayTimeouts}";
         StatsGrid.ItemsSource = projection.PlayerStats;
+        RefreshScoreboardControls(match);
+    }
+
+    private void RefreshScoreboardControls(Match? match)
+    {
+        if (match is null)
+        {
+            StartClockButton.IsEnabled = false;
+            ResumeClockButton.IsEnabled = false;
+            PauseClockButton.IsEnabled = false;
+            ResetClockButton.IsEnabled = false;
+            NextPeriodButton.IsEnabled = false;
+            EndMatchButton.IsEnabled = false;
+            EventActionsPanel.IsEnabled = false;
+            return;
+        }
+
+        var isFinished = match.Status == MatchStatus.Finished;
+        var isRunning = match.Status == MatchStatus.Running;
+        var canStart = !isFinished && !isRunning && match.RemainingSeconds > 0;
+
+        StartClockButton.IsEnabled = canStart && match.Status is MatchStatus.NotStarted or MatchStatus.Interval;
+        ResumeClockButton.IsEnabled = canStart && match.Status == MatchStatus.Paused;
+        PauseClockButton.IsEnabled = isRunning;
+        ResetClockButton.IsEnabled = !isFinished;
+        NextPeriodButton.IsEnabled = !isFinished && !isRunning && match.CurrentPeriod < match.PeriodCount;
+        EndMatchButton.IsEnabled = !isFinished;
+        EventActionsPanel.IsEnabled = isRunning;
     }
 
     private void RefreshEvents()
@@ -210,7 +245,8 @@ public partial class MainWindow : Window
                         队伍 = item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
                         球员 = player?.DisplayName ?? "未知球员",
                         事件 = EventText(item),
-                        分值 = item.Points
+                        分值 = item.Points,
+                        备注 = item.Note
                     };
                 })
                 .ToList();
@@ -236,6 +272,45 @@ public partial class MainWindow : Window
             MatchEventKind.TimeoutRequest => "申请暂停",
             _ => item.Kind.ToString()
         };
+    }
+
+    private static string TeamSideText(TeamSide side)
+    {
+        return side == TeamSide.Home ? "主队" : "客队";
+    }
+
+    private static string MatchStatusText(MatchStatus status)
+    {
+        return status switch
+        {
+            MatchStatus.NotStarted => "未开始",
+            MatchStatus.Running => "进行中",
+            MatchStatus.Paused => "暂停中",
+            MatchStatus.Interval => "节间",
+            MatchStatus.Finished => "已结束",
+            _ => status.ToString()
+        };
+    }
+
+    private void PauseRunningMatchesAfterRestart()
+    {
+        var runningMatches = _data.Matches
+            .Where(match => match.IsClockRunning && match.Status != MatchStatus.Finished)
+            .ToList();
+        if (runningMatches.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var match in runningMatches)
+        {
+            match.IsClockRunning = false;
+            match.LastClockUpdateUtc = null;
+            match.Status = MatchStatus.Paused;
+        }
+
+        SaveData();
+        MessageBox.Show($"检测到 {runningMatches.Count} 场比赛上次关闭时仍在计时，已按恢复策略自动暂停。", "计时已恢复", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void SelectPhoto_Click(object sender, RoutedEventArgs e)
@@ -513,8 +588,10 @@ public partial class MainWindow : Window
         }
 
         SaveData();
+        TeamNameBox.Text = "";
+        TeamNoteBox.Text = "";
         RefreshAll();
-        TeamsGrid.SelectedItem = team;
+        TeamsGrid.SelectedItem = null;
     }
 
     private void DisableTeam_Click(object sender, RoutedEventArgs e)
@@ -623,7 +700,8 @@ public partial class MainWindow : Window
             Note = MatchNoteBox.Text.Trim(),
             PeriodCount = periodCount,
             PeriodLengthSeconds = periodLength,
-            RemainingSeconds = periodLength
+            RemainingSeconds = periodLength,
+            Status = MatchStatus.NotStarted
         };
 
         _data.Matches.Add(match);
@@ -683,6 +761,11 @@ public partial class MainWindow : Window
         RefreshEvents();
     }
 
+    private void ScoreboardSideCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RefreshActivePlayers();
+    }
+
     private void StartClock_Click(object sender, RoutedEventArgs e)
     {
         var match = CurrentMatch;
@@ -691,18 +774,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        var homeRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Home);
-        var awayRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Away);
-        if (homeRosterCount == 0 || awayRosterCount == 0)
+        if (match.Status == MatchStatus.Finished)
         {
-            MessageBox.Show(
-                $"开始比赛前主队和客队名单都至少需要 1 名球员。\n当前主队 {homeRosterCount} 名，客队 {awayRosterCount} 名。",
-                "名单不完整",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            MessageBox.Show("比赛已结束，不能继续计时。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
+        if (match.RemainingSeconds <= 0)
+        {
+            MessageBox.Show("本节时间已经结束，请进入下一节或结束比赛。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!ValidateRosterBeforeClockStart(match))
+        {
+            return;
+        }
+
+        match.Status = MatchStatus.Running;
         match.IsClockRunning = true;
         match.LastClockUpdateUtc = DateTime.UtcNow;
         SaveData();
@@ -717,9 +806,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (match.Status != MatchStatus.Running)
+        {
+            MessageBox.Show("只有进行中的比赛可以暂停。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         UpdateClockFromElapsed();
         match.IsClockRunning = false;
         match.LastClockUpdateUtc = null;
+        if (match.Status == MatchStatus.Running)
+        {
+            match.Status = MatchStatus.Paused;
+        }
         SaveData();
         RefreshScoreboard();
     }
@@ -732,11 +831,122 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (match.Status == MatchStatus.Finished)
+        {
+            MessageBox.Show("比赛已结束，不能重置计时。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"确认重置第 {match.CurrentPeriod} 节计时吗？当前本节剩余 {FormatSeconds(match.RemainingSeconds)}，重置后会回到 {FormatSeconds(match.PeriodLengthSeconds)}。",
+            "确认重置本节",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        UpdateClockFromElapsed();
         match.IsClockRunning = false;
         match.LastClockUpdateUtc = null;
         match.RemainingSeconds = match.PeriodLengthSeconds;
+        match.Status = match.CurrentPeriod == 1 && !_data.Events.Any(item => item.MatchId == match.Id)
+            ? MatchStatus.NotStarted
+            : MatchStatus.Paused;
         SaveData();
         RefreshScoreboard();
+    }
+
+    private void NextPeriod_Click(object sender, RoutedEventArgs e)
+    {
+        var match = CurrentMatch;
+        if (match is null)
+        {
+            return;
+        }
+
+        if (match.Status == MatchStatus.Finished)
+        {
+            MessageBox.Show("比赛已结束，不能进入下一节。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (match.Status == MatchStatus.Running)
+        {
+            MessageBox.Show("比赛进行中不能直接进入下一节，请先暂停计时。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        UpdateClockFromElapsed();
+        if (match.CurrentPeriod >= match.PeriodCount)
+        {
+            var finish = MessageBox.Show("当前已经是最后一节，是否结束比赛？", "结束比赛", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (finish == MessageBoxResult.Yes)
+            {
+                FinishMatch(match);
+            }
+
+            return;
+        }
+
+        match.CurrentPeriod++;
+        match.RemainingSeconds = match.PeriodLengthSeconds;
+        match.IsClockRunning = false;
+        match.LastClockUpdateUtc = null;
+        match.Status = MatchStatus.Interval;
+        SaveData();
+        RefreshScoreboard();
+    }
+
+    private void EndMatch_Click(object sender, RoutedEventArgs e)
+    {
+        var match = CurrentMatch;
+        if (match is null)
+        {
+            return;
+        }
+
+        if (match.Status == MatchStatus.Finished)
+        {
+            return;
+        }
+
+        var result = MessageBox.Show($"确认结束比赛“{match.DisplayName}”吗？结束后不能继续计时或记录事件。", "确认结束比赛", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        UpdateClockFromElapsed();
+        FinishMatch(match);
+    }
+
+    private void FinishMatch(Match match)
+    {
+        match.IsClockRunning = false;
+        match.LastClockUpdateUtc = null;
+        match.Status = MatchStatus.Finished;
+        match.EndedAt ??= DateTime.UtcNow;
+        SaveData();
+        RefreshScoreboard();
+    }
+
+    private bool ValidateRosterBeforeClockStart(Match match)
+    {
+        var homeRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Home);
+        var awayRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Away);
+        if (homeRosterCount > 0 && awayRosterCount > 0)
+        {
+            return true;
+        }
+
+        MessageBox.Show(
+            $"开始比赛前主队和客队名单都至少需要 1 名球员。\n当前主队 {homeRosterCount} 名，客队 {awayRosterCount} 名。",
+            "名单不完整",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+        return false;
     }
 
     private void UpdateClockFromElapsed()
@@ -760,6 +970,11 @@ public partial class MainWindow : Window
         {
             match.IsClockRunning = false;
             match.LastClockUpdateUtc = null;
+            match.Status = match.CurrentPeriod >= match.PeriodCount ? MatchStatus.Finished : MatchStatus.Interval;
+            if (match.Status == MatchStatus.Finished)
+            {
+                match.EndedAt ??= DateTime.UtcNow;
+            }
             SaveData();
         }
     }
@@ -785,6 +1000,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        UpdateClockFromElapsed();
+        if (match.Status != MatchStatus.Running)
+        {
+            MessageBox.Show($"当前比赛状态为“{MatchStatusText(match.Status)}”，只有进行中才能记录比赛事件。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         var roster = _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id);
         if (roster is null)
         {
@@ -792,7 +1014,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        UpdateClockFromElapsed();
         _data.Events.Add(new MatchEvent
         {
             MatchId = match.Id,
@@ -801,9 +1022,11 @@ public partial class MainWindow : Window
             Kind = kind,
             Points = points,
             Period = match.CurrentPeriod,
-            ClockSecondsRemaining = match.RemainingSeconds
+            ClockSecondsRemaining = match.RemainingSeconds,
+            Note = EventNoteBox.Text.Trim()
         });
 
+        EventNoteBox.Text = "";
         SaveData();
         RefreshScoreboard();
         RefreshEvents();
@@ -817,12 +1040,29 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (match.Status == MatchStatus.Finished)
+        {
+            MessageBox.Show("已结束比赛的事件不允许直接撤销。后续更正应通过作废/更正记录保留审计痕迹。", "撤销规则", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         var last = _data.Events
             .Where(item => item.MatchId == match.Id)
             .OrderByDescending(item => item.CreatedAt)
             .FirstOrDefault();
 
         if (last is null)
+        {
+            return;
+        }
+
+        var player = _data.Players.FirstOrDefault(item => item.Id == last.PlayerId);
+        var result = MessageBox.Show(
+            $"确认撤销上一条事件？\n第 {last.Period} 节 {FormatSeconds(last.ClockSecondsRemaining)}，{TeamSideText(last.Side)}，{player?.DisplayName ?? "未知球员"}，{EventText(last)}。",
+            "确认撤销事件",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes)
         {
             return;
         }

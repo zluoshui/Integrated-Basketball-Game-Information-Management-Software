@@ -208,6 +208,7 @@
                             <StackPanel>
                                 <TextBlock Text="节次" FontSize="16" />
                                 <TextBlock x:Name="PeriodText" Text="第 1 节" FontSize="30" FontWeight="Bold" />
+                                <TextBlock x:Name="StatusText" Text="未开始" FontSize="18" FontWeight="Bold" />
                             </StackPanel>
                         </Border>
                         <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
@@ -217,24 +218,34 @@
                             </StackPanel>
                         </Border>
                     </UniformGrid>
-                    <WrapPanel Grid.Row="1" Margin="0,8">
-                        <Button Content="开始" Click="StartClock_Click" />
-                        <Button Content="暂停" Click="PauseClock_Click" />
-                        <Button Content="继续" Click="StartClock_Click" />
-                        <Button Content="重置本节" Click="ResetClock_Click" />
-                        <TextBlock Text="记录球员" />
-                        <ComboBox x:Name="ActivePlayerCombo" DisplayMemberPath="DisplayName" Width="240" />
-                        <Button Content="+1" Click="ScoreOne_Click" />
-                        <Button Content="+2" Click="ScoreTwo_Click" />
-                        <Button Content="+3" Click="ScoreThree_Click" />
-                        <Button Content="犯规" Click="Foul_Click" />
-                        <Button Content="篮板" Click="Rebound_Click" />
-                        <Button Content="助攻" Click="Assist_Click" />
-                        <Button Content="抢断" Click="Steal_Click" />
-                        <Button Content="盖帽" Click="Block_Click" />
-                        <Button Content="失误" Click="Turnover_Click" />
-                        <Button Content="申请暂停" Click="TimeoutRequest_Click" />
-                    </WrapPanel>
+                    <StackPanel Grid.Row="1" Margin="0,8">
+                        <WrapPanel>
+                            <Button x:Name="StartClockButton" Content="开始" Click="StartClock_Click" />
+                            <Button x:Name="PauseClockButton" Content="暂停" Click="PauseClock_Click" />
+                            <Button x:Name="ResumeClockButton" Content="继续" Click="StartClock_Click" />
+                            <Button x:Name="ResetClockButton" Content="重置本节" Click="ResetClock_Click" />
+                            <Button x:Name="NextPeriodButton" Content="下一节" Click="NextPeriod_Click" />
+                            <Button x:Name="EndMatchButton" Content="结束比赛" Click="EndMatch_Click" />
+                        </WrapPanel>
+                        <WrapPanel x:Name="EventActionsPanel">
+                            <TextBlock Text="阵营" />
+                            <ComboBox x:Name="ScoreboardSideCombo" Width="100" SelectionChanged="ScoreboardSideCombo_SelectionChanged" />
+                            <TextBlock Text="记录球员" />
+                            <ComboBox x:Name="ActivePlayerCombo" DisplayMemberPath="DisplayName" Width="240" />
+                            <TextBlock Text="事件备注" />
+                            <TextBox x:Name="EventNoteBox" Width="160" />
+                            <Button Content="+1" Click="ScoreOne_Click" />
+                            <Button Content="+2" Click="ScoreTwo_Click" />
+                            <Button Content="+3" Click="ScoreThree_Click" />
+                            <Button Content="犯规" Click="Foul_Click" />
+                            <Button Content="篮板" Click="Rebound_Click" />
+                            <Button Content="助攻" Click="Assist_Click" />
+                            <Button Content="抢断" Click="Steal_Click" />
+                            <Button Content="盖帽" Click="Block_Click" />
+                            <Button Content="失误" Click="Turnover_Click" />
+                            <Button Content="申请暂停" Click="TimeoutRequest_Click" />
+                        </WrapPanel>
+                    </StackPanel>
                     <DataGrid x:Name="StatsGrid"
                               Grid.Row="2"
                               AutoGenerateColumns="True"

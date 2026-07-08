@@ -122,6 +122,8 @@ public static class Statistics
                     break;
                 case MatchEventKind.ClockControl:
                     break;
+                case MatchEventKind.RosterAudit:
+                    break;
             }
         }
 

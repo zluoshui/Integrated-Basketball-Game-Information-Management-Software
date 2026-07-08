@@ -46,7 +46,8 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - Clock state must persist `current_period`, `remaining_seconds`, `status`, `is_clock_running`, and `last_clock_update_utc`.
 - Match event notes are part of the event log contract and must survive save/load round trips.
 - Voided events remain in `match_events`; statistics must ignore rows where `is_voided` is true.
-- `match_events.player_id` may be null only for team-level timeout and clock-control events; player statistics must skip null-player rows.
+- `match_events.player_id` may be null only for team-level timeout, clock-control, and roster-audit events; player statistics must skip null-player rows.
+- Roster corrections after match start must append a `RosterAudit` event with operator and note text in the event note.
 - CSV export defaults to the project-level `exports` folder; user overrides are stored in app data as `export-directory.txt`.
 
 ### 4. Validation & Error Matrix

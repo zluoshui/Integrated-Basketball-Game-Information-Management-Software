@@ -128,7 +128,8 @@ public enum MatchEventKind
     Block,
     Turnover,
     TimeoutRequest,
-    ClockControl
+    ClockControl,
+    RosterAudit
 }
 
 public sealed class ScoreProjection

@@ -61,6 +61,7 @@ internal static class SelfCheck
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.TimeoutRequest });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.TimeoutRequest });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.ClockControl, Period = 2, Note = "提前进入下一节" });
+        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.RosterAudit, Period = 2, Note = "名单审计修改：更新名单；操作人：自检；备注：测试" });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Rebound });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Assist });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.Steal });
@@ -101,8 +102,9 @@ internal static class SelfCheck
             Assert(loaded.Matches[0].RemainingSeconds == 123, "match clock round-trip failed");
             Assert(loaded.PlayerFields.Count == 1, "custom field definition round-trip failed");
             Assert(loaded.PlayerFieldValues.Count == 1, "custom field value round-trip failed");
-            Assert(loaded.Events.Count == 11, "data store event round-trip failed");
+            Assert(loaded.Events.Count == 12, "data store event round-trip failed");
             Assert(loaded.Events.Any(item => item.Note == "快攻"), "event note round-trip failed");
+            Assert(loaded.Events.Any(item => item.Kind == MatchEventKind.RosterAudit && item.Note.Contains("名单审计修改", StringComparison.OrdinalIgnoreCase)), "roster audit event round-trip failed");
             Assert(loaded.Events.Any(item => item.IsVoided && item.VoidReason == "录入错误" && item.VoidedBy == "自检"), "event void audit round-trip failed");
             Assert(Statistics.Compute(loaded, loaded.Matches[0]).HomeScore == 2, "loaded home projection failed");
             Assert(Statistics.Compute(loaded, loaded.Matches[0]).AwayScore == 3, "loaded away projection failed");

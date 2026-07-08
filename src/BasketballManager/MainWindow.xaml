@@ -160,6 +160,10 @@
                         <Button Content="加入名单" Click="AddRoster_Click" />
                         <Button Content="更新名单" Click="UpdateRoster_Click" />
                         <Button Content="移出名单" Click="RemoveRoster_Click" />
+                        <TextBlock Text="审计操作人" />
+                        <TextBox x:Name="RosterAuditOperatorBox" Width="110" />
+                        <TextBlock Text="审计备注" />
+                        <TextBox x:Name="RosterAuditNoteBox" Width="180" />
                     </WrapPanel>
                     <Grid Grid.Row="3">
                         <Grid.ColumnDefinitions>

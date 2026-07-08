@@ -304,7 +304,7 @@ public partial class MainWindow : Window
                     节次 = item.Period,
                     表钟 = FormatSeconds(item.ClockSecondsRemaining),
                     队伍 = item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                    球员 = player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统"),
+                    球员 = player?.DisplayName ?? EventActorText(item),
                     事件 = EventText(item),
                     分值 = item.Points,
                     备注 = item.Note,
@@ -367,6 +367,7 @@ public partial class MainWindow : Window
             MatchEventKind.Turnover => "失误",
             MatchEventKind.TimeoutRequest => "申请暂停",
             MatchEventKind.ClockControl => string.IsNullOrWhiteSpace(item.Note) ? "计时控制" : item.Note,
+            MatchEventKind.RosterAudit => string.IsNullOrWhiteSpace(item.Note) ? "名单审计" : item.Note,
             _ => item.Kind.ToString()
         };
     }
@@ -874,16 +875,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!EnsureRosterEditable(match))
-        {
-            return;
-        }
-
         var roster = _data.Rosters.FirstOrDefault(item => item.Id == selected.名单ID);
         if (roster is null)
         {
             MessageBox.Show("选中的名单记录已不存在，请刷新后重试。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             RefreshRosters();
+            return;
+        }
+
+        var audit = PrepareRosterAudit(match, $"移出名单：{selected.球员}");
+        if (audit is null)
+        {
             return;
         }
 
@@ -894,9 +896,11 @@ public partial class MainWindow : Window
         }
 
         _data.Rosters.Remove(roster);
+        AddRosterAuditEvent(match, roster.Side, audit, $"移出名单：{selected.球员}，原号码 {selected.号码}，原首发 {FormatBool(selected.首发)}");
         SaveData();
         RefreshRosters();
         RefreshScoreboard();
+        RefreshEvents();
     }
 
     private void SaveRosterEntry(MatchRoster? existingRoster)
@@ -909,12 +913,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!EnsureRosterEditable(match))
+        var side = RosterSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
+        var actionName = existingRoster is null ? "加入名单" : "更新名单";
+        var playerName = player.DisplayName;
+        var audit = PrepareRosterAudit(match, $"{actionName}：{TeamSideText(side)} {playerName}");
+        if (audit is null)
         {
             return;
         }
 
-        var side = RosterSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
         var sideTeamId = side == TeamSide.Home ? match.HomeTeamId : match.AwayTeamId;
         if (player.TeamId is null || sideTeamId is null || player.TeamId != sideTeamId)
         {
@@ -949,6 +956,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var beforeText = existingRoster is null ? "无" : DescribeRoster(existingRoster, match);
         roster = existingRoster ?? new MatchRoster { MatchId = match.Id };
         roster.PlayerId = player.Id;
         roster.Side = side;
@@ -959,21 +967,71 @@ public partial class MainWindow : Window
             _data.Rosters.Add(roster);
         }
 
+        if (audit.IsRequired)
+        {
+            AddRosterAuditEvent(match, side, audit, $"{actionName}：{beforeText} -> {DescribeRoster(roster, match)}");
+        }
+
         SaveData();
         RefreshRosters();
         RefreshScoreboard();
+        RefreshEvents();
     }
 
-    private bool EnsureRosterEditable(Match match)
+    private RosterAudit? PrepareRosterAudit(Match match, string operation)
     {
         if (match.Status == MatchStatus.NotStarted)
         {
-            return true;
+            return new RosterAudit(false, "", "");
         }
 
-        MessageBox.Show($"当前比赛状态为“{MatchStatusText(match.Status)}”，名单已锁定。赛中或赛后名单更正需要后续专门审计入口。", "名单已锁定", MessageBoxButton.OK, MessageBoxImage.Warning);
-        return false;
+        var auditOperator = RosterAuditOperatorBox.Text.Trim();
+        var auditNote = RosterAuditNoteBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(auditOperator) || string.IsNullOrWhiteSpace(auditNote))
+        {
+            MessageBox.Show(
+                $"当前比赛状态为“{MatchStatusText(match.Status)}”，已进入名单审计修改。\n操作：{operation}\n\n请填写“审计操作人”和“审计备注”后再次确认。",
+                "名单审计修改",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
+        var result = MessageBox.Show(
+            $"确认执行名单审计修改？\n状态：{MatchStatusText(match.Status)}\n操作：{operation}\n操作人：{auditOperator}\n备注：{auditNote}\n\n确认后会执行修改，并写入比赛日志。",
+            "确认名单审计修改",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        return result == MessageBoxResult.Yes ? new RosterAudit(true, auditOperator, auditNote) : null;
     }
+
+    private void AddRosterAuditEvent(Match match, TeamSide side, RosterAudit audit, string operation)
+    {
+        if (!audit.IsRequired)
+        {
+            return;
+        }
+
+        _data.Events.Add(new MatchEvent
+        {
+            MatchId = match.Id,
+            PlayerId = null,
+            Side = side,
+            Kind = MatchEventKind.RosterAudit,
+            Period = match.CurrentPeriod,
+            ClockSecondsRemaining = match.RemainingSeconds,
+            Note = $"名单审计修改：{operation}；操作人：{audit.Operator}；备注：{audit.Note}"
+        });
+        RosterAuditNoteBox.Text = "";
+    }
+
+    private string DescribeRoster(MatchRoster roster, Match match)
+    {
+        var player = _data.Players.FirstOrDefault(item => item.Id == roster.PlayerId);
+        return $"{(roster.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName)} {player?.DisplayName ?? "未知球员"}，号码 {roster.JerseyNumber}，首发 {FormatBool(roster.IsStarter)}";
+    }
+
+    private static string FormatBool(bool value) => value ? "是" : "否";
 
     private static string NormalizeJerseyNumber(string text)
     {
@@ -1442,7 +1500,7 @@ public partial class MainWindow : Window
         }
 
         var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
-        var actor = player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统");
+        var actor = player?.DisplayName ?? EventActorText(item);
         var result = MessageBox.Show(
             $"确认作废该事件？\n第 {item.Period} 节 {FormatSeconds(item.ClockSecondsRemaining)}，{TeamSideText(item.Side)}，{actor}，{EventText(item)}。\n\n事件会保留在日志中，并标记为作废。",
             "确认作废事件",
@@ -1599,7 +1657,7 @@ public partial class MainWindow : Window
                 item.Period.ToString(CultureInfo.InvariantCulture),
                 FormatSeconds(item.ClockSecondsRemaining),
                 item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                player?.DisplayName ?? (item.Kind == MatchEventKind.TimeoutRequest ? "球队" : "系统"),
+                player?.DisplayName ?? EventActorText(item),
                 EventText(item),
                 item.Points.ToString(CultureInfo.InvariantCulture),
                 item.Note,
@@ -1620,6 +1678,18 @@ public partial class MainWindow : Window
     {
         return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
+
+    private static string EventActorText(MatchEvent item)
+    {
+        return item.Kind switch
+        {
+            MatchEventKind.TimeoutRequest => "球队",
+            MatchEventKind.RosterAudit => "名单审计",
+            _ => "系统"
+        };
+    }
+
+    private sealed record RosterAudit(bool IsRequired, string Operator, string Note);
 
     private sealed class RosterRow
     {

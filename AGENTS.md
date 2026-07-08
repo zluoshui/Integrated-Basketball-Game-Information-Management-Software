@@ -19,3 +19,10 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+## Project Knowledge Base Requirements
+
+- Before any code, design, test, or documentation change, read `docs/project-knowledge/README.md` and the linked knowledge-base pages relevant to the touched area.
+- If a change affects architecture, data schema, JSON/CSV contracts, database migrations, operator workflows, validation commands, known risks, or long-term decisions, update the corresponding file under `docs/project-knowledge/` in the same change.
+- Do not treat the knowledge base as optional handoff notes. It is part of the project source of truth for future human developers and AI developers.
+- Keep knowledge-base updates concise, factual, and synchronized with the implemented behavior.

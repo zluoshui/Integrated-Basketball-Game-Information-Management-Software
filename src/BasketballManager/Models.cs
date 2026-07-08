@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace BasketballManager;
 
 public sealed class AppData
@@ -8,6 +10,40 @@ public sealed class AppData
     public List<PlayerFieldValue> PlayerFieldValues { get; set; } = [];
     public List<Team> Teams { get; set; } = [];
     public List<Match> Matches { get; set; } = [];
+    public List<MatchRoster> Rosters { get; set; } = [];
+    public List<MatchEvent> Events { get; set; } = [];
+}
+
+public sealed class CompetitionManifest
+{
+    public int FormatVersion { get; set; } = 1;
+    public string CompetitionId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class CompetitionWorkspace
+{
+    public string DirectoryPath { get; set; } = "";
+    public CompetitionManifest Manifest { get; set; } = new();
+    public string ManifestPath => Path.Combine(DirectoryPath, "competition.json");
+    public string DatabasePath => Path.Combine(DirectoryPath, "basketball.db");
+    public string PhotoDirectory => Path.Combine(DirectoryPath, "photos");
+    public string ExportDirectory => Path.Combine(DirectoryPath, "exports");
+    public string BackupDirectory => Path.Combine(DirectoryPath, "backups");
+}
+
+public sealed class MatchLogExport
+{
+    public string FormatName { get; set; } = MatchLogService.FormatName;
+    public int FormatVersion { get; set; } = MatchLogService.FormatVersion;
+    public string CompetitionId { get; set; } = "";
+    public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
+    public Guid MatchId { get; set; }
+    public Match Match { get; set; } = new();
+    public List<Team> Teams { get; set; } = [];
+    public List<Player> Players { get; set; } = [];
     public List<MatchRoster> Rosters { get; set; } = [];
     public List<MatchEvent> Events { get; set; } = [];
 }
@@ -83,6 +119,7 @@ public sealed class MatchRoster
     public TeamSide Side { get; set; }
     public string JerseyNumber { get; set; } = "";
     public bool IsStarter { get; set; }
+    public bool IsOnCourt { get; set; }
 }
 
 public sealed class MatchEvent
@@ -90,6 +127,7 @@ public sealed class MatchEvent
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid MatchId { get; set; }
     public Guid? PlayerId { get; set; }
+    public Guid? RelatedPlayerId { get; set; }
     public TeamSide Side { get; set; }
     public MatchEventKind Kind { get; set; }
     public int Points { get; set; }
@@ -129,7 +167,8 @@ public enum MatchEventKind
     Turnover,
     TimeoutRequest,
     ClockControl,
-    RosterAudit
+    RosterAudit,
+    Substitution
 }
 
 public sealed class ScoreProjection

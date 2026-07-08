@@ -49,8 +49,8 @@ internal static class SelfCheck
             Matches = [match],
             Rosters =
             [
-                new MatchRoster { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home },
-                new MatchRoster { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away }
+                new MatchRoster { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, IsStarter = true, IsOnCourt = true },
+                new MatchRoster { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, IsStarter = true, IsOnCourt = true }
             ]
         };
         data.PlayerFieldValues.Add(new PlayerFieldValue { PlayerId = homePlayer.Id, FieldId = data.PlayerFields[0].Id, Value = "后卫" });
@@ -62,6 +62,7 @@ internal static class SelfCheck
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.TimeoutRequest });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.ClockControl, Period = 2, Note = "提前进入下一节" });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = null, Side = TeamSide.Home, Kind = MatchEventKind.RosterAudit, Period = 2, Note = "名单审计修改：更新名单；操作人：自检；备注：测试" });
+        data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, RelatedPlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Substitution, Period = 2, Note = "换人测试" });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Rebound });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = homePlayer.Id, Side = TeamSide.Home, Kind = MatchEventKind.Assist });
         data.Events.Add(new MatchEvent { MatchId = match.Id, PlayerId = awayPlayer.Id, Side = TeamSide.Away, Kind = MatchEventKind.Steal });
@@ -88,10 +89,39 @@ internal static class SelfCheck
         Assert(projection.PlayerStats.Any(item => item.PlayerName == homePlayer.DisplayName && item.Rebounds == 1 && item.Assists == 1 && item.Blocks == 1), "home player stats projection failed");
         Assert(projection.PlayerStats.Any(item => item.PlayerName == awayPlayer.DisplayName && item.Steals == 1 && item.Turnovers == 0), "away player stats projection failed");
 
+        var matchLog = MatchLogService.Build(data, "SchoolCup2026", match);
+        Assert(matchLog.CompetitionId == "SchoolCup2026", "match log competition id failed");
+        Assert(matchLog.MatchId == match.Id, "match log match id failed");
+        Assert(matchLog.Events.Any(item => item.Id == data.Events[0].Id), "match log event id failed");
+        Assert(matchLog.Events.Any(item => item.Kind == MatchEventKind.Substitution && item.RelatedPlayerId == homePlayer.Id), "match log substitution failed");
+        var importedData = new AppData();
+        var importResult = MatchLogService.Import(importedData, matchLog, "SchoolCup2026");
+        Assert(importResult.Status == MatchLogImportStatus.Imported, "match log import failed");
+        Assert(importedData.Matches.Count == 1 && importedData.Events.Count == data.Events.Count, "match log import data failed");
+        Assert(MatchLogService.Import(importedData, matchLog, "SchoolCup2026").Status == MatchLogImportStatus.Skipped, "duplicate match log skip failed");
+        Assert(MatchLogService.Import(new AppData(), matchLog, "OtherCup2026").Status == MatchLogImportStatus.Rejected, "foreign competition log rejection failed");
+
         var tempDirectory = Path.Combine(Path.GetTempPath(), $"BasketballManagerSelfCheck-{Guid.NewGuid():N}");
         var store = new DataStore(tempDirectory);
         try
         {
+            var workspaceManager = new CompetitionWorkspaceManager(Path.Combine(tempDirectory, "app"));
+            var workspace = workspaceManager.CreateCompetition("校杯", "SchoolCup2026");
+            Assert(File.Exists(workspace.ManifestPath), "competition manifest missing");
+            Assert(File.Exists(workspace.DatabasePath), "competition database missing");
+            Assert(Directory.Exists(workspace.PhotoDirectory), "competition photo directory missing");
+            AssertThrows(() => CompetitionWorkspaceManager.ValidateCompetitionId("校杯 2026"), "invalid competition id failed");
+            var updatedWorkspace = workspaceManager.UpdateManifest(workspace, "校杯更新", "SchoolCup2026A");
+            Assert(updatedWorkspace.Manifest.CompetitionId == "SchoolCup2026A", "competition id update failed");
+            var exportedWorkspacePath = workspaceManager.ExportWorkspace(updatedWorkspace, Path.Combine(tempDirectory, "workspace-exports"));
+            Assert(File.Exists(Path.Combine(exportedWorkspacePath, "competition.json")), "competition export manifest missing");
+            Assert(File.Exists(Path.Combine(exportedWorkspacePath, "basketball.db")), "competition export database missing");
+            AssertThrows(() => workspaceManager.OpenWorkspace(exportedWorkspacePath), "external competition open should be rejected");
+            AssertThrows(() => workspaceManager.ImportWorkspace(exportedWorkspacePath), "duplicate competition import should be rejected");
+            var otherWorkspaceManager = new CompetitionWorkspaceManager(Path.Combine(tempDirectory, "other-app"));
+            Assert(otherWorkspaceManager.ImportWorkspace(exportedWorkspacePath).Manifest.CompetitionId == "SchoolCup2026A", "competition import failed");
+            Assert(otherWorkspaceManager.ListImportedWorkspaces().Count == 1, "imported competition list failed");
+
             store.Save(data);
             var loaded = store.Load();
             Assert(loaded.Players.Count == 2, "data store player round-trip failed");
@@ -102,8 +132,10 @@ internal static class SelfCheck
             Assert(loaded.Matches[0].RemainingSeconds == 123, "match clock round-trip failed");
             Assert(loaded.PlayerFields.Count == 1, "custom field definition round-trip failed");
             Assert(loaded.PlayerFieldValues.Count == 1, "custom field value round-trip failed");
-            Assert(loaded.Events.Count == 12, "data store event round-trip failed");
+            Assert(loaded.Rosters.Any(item => item.IsStarter && item.IsOnCourt), "roster on-court round-trip failed");
+            Assert(loaded.Events.Count == 13, "data store event round-trip failed");
             Assert(loaded.Events.Any(item => item.Note == "快攻"), "event note round-trip failed");
+            Assert(loaded.Events.Any(item => item.Kind == MatchEventKind.Substitution && item.RelatedPlayerId == homePlayer.Id), "substitution event round-trip failed");
             Assert(loaded.Events.Any(item => item.Kind == MatchEventKind.RosterAudit && item.Note.Contains("名单审计修改", StringComparison.OrdinalIgnoreCase)), "roster audit event round-trip failed");
             Assert(loaded.Events.Any(item => item.IsVoided && item.VoidReason == "录入错误" && item.VoidedBy == "自检"), "event void audit round-trip failed");
             Assert(Statistics.Compute(loaded, loaded.Matches[0]).HomeScore == 2, "loaded home projection failed");
@@ -132,5 +164,19 @@ internal static class SelfCheck
         {
             throw new InvalidOperationException(message);
         }
+    }
+
+    private static void AssertThrows(Action action, string message)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(message);
     }
 }

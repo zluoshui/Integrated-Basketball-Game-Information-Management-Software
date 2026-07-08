@@ -7,7 +7,7 @@ namespace BasketballManager;
 
 public sealed class DataStore
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public DataStore(string? dataDirectory = null)
@@ -23,6 +23,7 @@ public sealed class DataStore
     public string DataPath => Path.Combine(DataDirectory, "basketball.db");
     public string LegacyJsonPath => Path.Combine(DataDirectory, "basketball-data.json");
     public string PhotoDirectory => Path.Combine(DataDirectory, "photos");
+    public string DefaultExportDirectory => Path.Combine(DataDirectory, "exports");
     public string ExportDirectorySettingsPath => Path.Combine(DataDirectory, "export-directory.txt");
 
     public AppData Load()
@@ -164,15 +165,16 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO match_rosters (id, match_id, player_id, side, jersey_number, is_starter)
-                    VALUES ($id, $match_id, $player_id, $side, $jersey_number, $is_starter)
+                    INSERT INTO match_rosters (id, match_id, player_id, side, jersey_number, is_starter, is_on_court)
+                    VALUES ($id, $match_id, $player_id, $side, $jersey_number, $is_starter, $is_on_court)
                     """,
                     ("$id", roster.Id.ToString()),
                     ("$match_id", roster.MatchId.ToString()),
                     ("$player_id", roster.PlayerId.ToString()),
                     ("$side", roster.Side.ToString()),
                     ("$jersey_number", roster.JerseyNumber),
-                    ("$is_starter", roster.IsStarter ? 1 : 0));
+                    ("$is_starter", roster.IsStarter ? 1 : 0),
+                    ("$is_on_court", roster.IsOnCourt ? 1 : 0));
             }
 
             foreach (var item in data.Events)
@@ -181,12 +183,13 @@ public sealed class DataStore
                     connection,
                     transaction,
                     """
-                    INSERT INTO match_events (id, match_id, player_id, side, kind, points, period, clock_seconds_remaining, note, is_voided, voided_at, void_reason, voided_by, created_at)
-                    VALUES ($id, $match_id, $player_id, $side, $kind, $points, $period, $clock_seconds_remaining, $note, $is_voided, $voided_at, $void_reason, $voided_by, $created_at)
+                    INSERT INTO match_events (id, match_id, player_id, related_player_id, side, kind, points, period, clock_seconds_remaining, note, is_voided, voided_at, void_reason, voided_by, created_at)
+                    VALUES ($id, $match_id, $player_id, $related_player_id, $side, $kind, $points, $period, $clock_seconds_remaining, $note, $is_voided, $voided_at, $void_reason, $voided_by, $created_at)
                     """,
                     ("$id", item.Id.ToString()),
                     ("$match_id", item.MatchId.ToString()),
                     ("$player_id", ToText(item.PlayerId)),
+                    ("$related_player_id", ToText(item.RelatedPlayerId)),
                     ("$side", item.Side.ToString()),
                     ("$kind", item.Kind.ToString()),
                     ("$points", item.Points),
@@ -260,7 +263,7 @@ public sealed class DataStore
                 ? File.ReadAllText(ExportDirectorySettingsPath).Trim()
                 : "";
             var exportDirectory = string.IsNullOrWhiteSpace(configuredDirectory)
-                ? GetDefaultExportDirectory()
+                ? DefaultExportDirectory
                 : configuredDirectory;
             Directory.CreateDirectory(exportDirectory);
             return exportDirectory;
@@ -288,30 +291,6 @@ public sealed class DataStore
         {
             throw new InvalidOperationException($"无法保存导出目录设置: {ExportDirectorySettingsPath}. {ex.Message}", ex);
         }
-    }
-
-    private static string GetDefaultExportDirectory()
-    {
-        var projectRoot = FindProjectRoot(Environment.CurrentDirectory)
-            ?? FindProjectRoot(AppContext.BaseDirectory)
-            ?? AppContext.BaseDirectory;
-        return Path.Combine(projectRoot, "exports");
-    }
-
-    private static string? FindProjectRoot(string startDirectory)
-    {
-        var directory = new DirectoryInfo(startDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "BasketballManager.sln")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        return null;
     }
 
     private void EnsureDatabase()
@@ -399,13 +378,15 @@ public sealed class DataStore
                 PlayerId = ReadGuid(reader, "player_id"),
                 Side = ReadEnum<TeamSide>(reader, "side"),
                 JerseyNumber = ReadString(reader, "jersey_number"),
-                IsStarter = ReadBool(reader, "is_starter")
+                IsStarter = ReadBool(reader, "is_starter"),
+                IsOnCourt = ReadBool(reader, "is_on_court")
             }),
             Events = Query(connection, "SELECT * FROM match_events ORDER BY created_at", reader => new MatchEvent
             {
                 Id = ReadGuid(reader, "id"),
                 MatchId = ReadGuid(reader, "match_id"),
                 PlayerId = ReadNullableGuid(reader, "player_id"),
+                RelatedPlayerId = ReadNullableGuid(reader, "related_player_id"),
                 Side = ReadEnum<TeamSide>(reader, "side"),
                 Kind = ReadEnum<MatchEventKind>(reader, "kind"),
                 Points = ReadInt(reader, "points"),
@@ -488,6 +469,7 @@ public sealed class DataStore
                 side TEXT NOT NULL,
                 jersey_number TEXT NOT NULL DEFAULT '',
                 is_starter INTEGER NOT NULL DEFAULT 0,
+                is_on_court INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (match_id, player_id),
                 FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
                 FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
@@ -498,6 +480,7 @@ public sealed class DataStore
                 id TEXT PRIMARY KEY,
                 match_id TEXT NOT NULL,
                 player_id TEXT NULL,
+                related_player_id TEXT NULL,
                 side TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 points INTEGER NOT NULL DEFAULT 0,
@@ -510,7 +493,8 @@ public sealed class DataStore
                 voided_by TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
-                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+                FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                FOREIGN KEY (related_player_id) REFERENCES players(id) ON DELETE CASCADE
             )
             """);
     }
@@ -586,6 +570,14 @@ public sealed class DataStore
             Execute(connection, transaction, "DROP TABLE match_events");
             Execute(connection, transaction, "ALTER TABLE match_events_v5 RENAME TO match_events");
             Execute(connection, transaction, "UPDATE schema_info SET version = 5");
+        }
+
+        if (version < 6)
+        {
+            AddColumnIfMissing(connection, transaction, "match_rosters", "is_on_court", "INTEGER NOT NULL DEFAULT 0");
+            Execute(connection, transaction, "UPDATE match_rosters SET is_on_court = is_starter WHERE is_on_court = 0");
+            AddColumnIfMissing(connection, transaction, "match_events", "related_player_id", "TEXT NULL");
+            Execute(connection, transaction, "UPDATE schema_info SET version = 6");
         }
 
         transaction.Commit();

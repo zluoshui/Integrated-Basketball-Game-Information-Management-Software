@@ -16,7 +16,7 @@ Questions to answer:
 - How do you handle transactions?
 -->
 
-The desktop app uses SQLite as its primary local store. The database file lives at `%AppData%\BasketballManager\basketball.db`; imported photos live under `%AppData%\BasketballManager\photos\`.
+The desktop app uses SQLite as its primary local store. Each competition owns an isolated workspace under `%AppData%\BasketballManager\competitions\<competitionId>\` with `competition.json`, `basketball.db`, `photos\`, `exports\`, and `backups\`.
 
 ## Scenario: Local SQLite Store
 
@@ -30,6 +30,8 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - Save contract: `void Save(AppData data)`
 - Backup contract: `string Backup()`
 - Export directory setting: `LoadExportDirectory()` / `SaveExportDirectory(string exportDirectory)`
+- Competition workspace contract: `CompetitionWorkspaceManager`
+- Structured match log contract: `MatchLogService.Build()` / `MatchLogService.Import()`
 - Legacy import: `basketball-data.json` imports only when SQLite is empty.
 
 ### 3. Contracts
@@ -39,16 +41,22 @@ The desktop app uses SQLite as its primary local store. The database file lives 
 - Schema version `3` adds persisted match status for clock control (`NotStarted`, `Running`, `Paused`, `Interval`, `Finished`).
 - Schema version `4` adds event voiding audit fields: `is_voided`, `voided_at`, `void_reason`, and `voided_by`.
 - Schema version `5` rebuilds `match_events` so `player_id` is nullable for team-level timeout and clock-control audit events.
+- Schema version `6` adds `match_rosters.is_on_court` and `match_events.related_player_id` for current on-court state and substitution audit events.
 - IDs are stored as `TEXT` GUID strings.
 - Dates are stored as round-trip UTC text via `DateTime.ToString("O")`.
 - Booleans are stored as `INTEGER` values `0` or `1`.
 - Photo paths stored in the database must be relative to the app data directory.
+- The app data directory is the current competition workspace, not the root `%AppData%\BasketballManager\` folder.
+- External competition folders must be imported into `%AppData%\BasketballManager\competitions\` before opening. Import rejects duplicate competition IDs instead of overwriting local data.
+- `competition.json` stores the current competition ID. Match-log import must compare against the current ID only; exports made with an older ID must be rejected after an ID change.
+- Structured match-log JSON must preserve `Match.Id`, `MatchEvent.Id`, roster `is_on_court`, and substitution `related_player_id`; duplicate `Match.Id` imports are skipped instead of overwritten.
 - Clock state must persist `current_period`, `remaining_seconds`, `status`, `is_clock_running`, and `last_clock_update_utc`.
 - Match event notes are part of the event log contract and must survive save/load round trips.
 - Voided events remain in `match_events`; statistics must ignore rows where `is_voided` is true.
 - `match_events.player_id` may be null only for team-level timeout, clock-control, and roster-audit events; player statistics must skip null-player rows.
+- `Substitution` events use `player_id` as the outgoing player and `related_player_id` as the incoming player. Statistics must ignore substitution events.
 - Roster corrections after match start must append a `RosterAudit` event with operator and note text in the event note.
-- CSV export defaults to the project-level `exports` folder; user overrides are stored in app data as `export-directory.txt`.
+- CSV export defaults to the current competition workspace `exports` folder; user overrides are stored in that workspace as `export-directory.txt`.
 
 ### 4. Validation & Error Matrix
 - Missing database -> create the latest schema version.

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
@@ -11,17 +12,25 @@ namespace BasketballManager;
 
 public partial class MainWindow : Window
 {
-    private readonly DataStore _store = new();
+    private readonly CompetitionWorkspaceManager _workspaceManager = new();
     private readonly DispatcherTimer _timer = new();
-    private AppData _data;
+    private DataStore _store = null!;
+    private CompetitionWorkspace _workspace = null!;
+    private AppData _data = new();
     private string _exportDirectory = "";
+    private bool _isRefreshingCompetitionList;
+    private bool _isRefreshingMatchHistory;
+    private Player? _selectedOnCourtPlayer;
 
     public MainWindow()
     {
         InitializeComponent();
 
+        _workspace = OpenInitialWorkspace();
+        _store = new DataStore(_workspace.DirectoryPath);
         _data = LoadData();
         _exportDirectory = LoadExportDirectory();
+        RefreshCompetitionWorkspace();
         RefreshExportDirectoryText();
         PauseRunningMatchesAfterRestart();
         PlayerStatusCombo.ItemsSource = new[] { "在队", "离队", "停用" };
@@ -29,8 +38,6 @@ public partial class MainWindow : Window
         RosterSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
         RosterSideCombo.SelectedItem = TeamSide.Home;
         RosterSideCombo.SelectionChanged += (_, _) => RefreshRosterCandidates();
-        ScoreboardSideCombo.ItemsSource = Enum.GetValues<TeamSide>();
-        ScoreboardSideCombo.SelectedItem = TeamSide.Home;
         EventFilterSideCombo.ItemsSource = new[] { "全部", "主队", "客队" };
         EventFilterSideCombo.SelectedIndex = 0;
         EventFilterKindCombo.ItemsSource = new object[] { "全部" }.Concat(Enum.GetValues<MatchEventKind>().Cast<object>()).ToList();
@@ -45,6 +52,59 @@ public partial class MainWindow : Window
 
         RefreshAll();
         _timer.Start();
+    }
+
+    private CompetitionWorkspace OpenInitialWorkspace()
+    {
+        try
+        {
+            return _workspaceManager.OpenOrCreateInitialWorkspace();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "赛事工作区初始化失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            throw;
+        }
+    }
+
+    private void SwitchWorkspace(CompetitionWorkspace workspace, bool saveCurrent = true)
+    {
+        if (saveCurrent)
+        {
+            UpdateClockFromElapsed();
+            SaveData();
+        }
+        _workspace = workspace;
+        _store = new DataStore(_workspace.DirectoryPath);
+        _data = LoadData();
+        _exportDirectory = LoadExportDirectory();
+        RefreshCompetitionWorkspace();
+        RefreshExportDirectoryText();
+        PauseRunningMatchesAfterRestart();
+        RefreshAll();
+    }
+
+    private void RefreshCompetitionWorkspace()
+    {
+        CompetitionNameBox.Text = _workspace.Manifest.Name;
+        CompetitionIdBox.Text = _workspace.Manifest.CompetitionId;
+        CompetitionPathText.Text = $"赛事目录：{_workspace.DirectoryPath}";
+        RefreshImportedCompetitionList();
+    }
+
+    private void RefreshImportedCompetitionList()
+    {
+        _isRefreshingCompetitionList = true;
+        try
+        {
+            var workspaces = _workspaceManager.ListImportedWorkspaces();
+            CompetitionListCombo.ItemsSource = workspaces;
+            CompetitionListCombo.SelectedItem = workspaces.FirstOrDefault(item => item.DirectoryPath.Equals(_workspace.DirectoryPath, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _isRefreshingCompetitionList = false;
+        }
     }
 
     private AppData LoadData()
@@ -75,9 +135,10 @@ public partial class MainWindow : Window
     private Match? CurrentMatch => MatchCombo.SelectedItem as Match;
     private Player? SelectedPlayer => PlayersGrid.SelectedItem as Player;
     private Team? SelectedTeam => TeamsGrid.SelectedItem as Team;
-    private Player? ActivePlayer => ActivePlayerCombo.SelectedItem as Player;
+    private Player? ActivePlayer => _selectedOnCourtPlayer;
     private RosterRow? SelectedRoster => RostersGrid.SelectedItem as RosterRow;
     private EventRow? SelectedEvent => EventsGrid.SelectedItem as EventRow;
+    private IReadOnlyList<MatchHistoryRow> CheckedMatchHistoryRows => (MatchesHistoryGrid.ItemsSource as IEnumerable<MatchHistoryRow>)?.Where(row => row.导出).ToList() ?? [];
 
     private void RefreshAll()
     {
@@ -137,6 +198,37 @@ public partial class MainWindow : Window
         var selectedId = CurrentMatch?.Id;
         MatchCombo.ItemsSource = _data.Matches.OrderByDescending(match => match.CreatedAt).ToList();
         MatchCombo.SelectedItem = _data.Matches.FirstOrDefault(match => match.Id == selectedId) ?? _data.Matches.LastOrDefault();
+        RefreshMatchHistory();
+    }
+
+    private void RefreshMatchHistory()
+    {
+        var checkedIds = CheckedMatchHistoryRows.Select(row => row.比赛ID).ToHashSet();
+        _isRefreshingMatchHistory = true;
+        try
+        {
+            var rows = _data.Matches
+                .OrderByDescending(match => match.CreatedAt)
+                .Select(match => new MatchHistoryRow
+                {
+                    导出 = checkedIds.Contains(match.Id),
+                    比赛ID = match.Id,
+                    创建时间 = match.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    比赛名 = match.Name,
+                    主队 = match.HomeTeamName,
+                    客队 = match.AwayTeamName,
+                    状态 = MatchStatusText(match.Status),
+                    事件数 = _data.Events.Count(item => item.MatchId == match.Id),
+                    名单数 = _data.Rosters.Count(item => item.MatchId == match.Id)
+                })
+                .ToList();
+            MatchesHistoryGrid.ItemsSource = rows;
+            MatchesHistoryGrid.SelectedItem = rows.FirstOrDefault(row => row.比赛ID == CurrentMatch?.Id);
+        }
+        finally
+        {
+            _isRefreshingMatchHistory = false;
+        }
     }
 
     private void RefreshRosters()
@@ -145,7 +237,10 @@ public partial class MainWindow : Window
         if (match is null)
         {
             RostersGrid.ItemsSource = null;
-            ActivePlayerCombo.ItemsSource = null;
+            HomeOnCourtList.ItemsSource = null;
+            AwayOnCourtList.ItemsSource = null;
+            SubstitutePlayerCombo.ItemsSource = null;
+            _selectedOnCourtPlayer = null;
             return;
         }
 
@@ -160,7 +255,8 @@ public partial class MainWindow : Window
                     球员 = player?.DisplayName ?? "未知球员",
                     队伍 = roster.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
                     号码 = roster.JerseyNumber,
-                    首发 = roster.IsStarter
+                    首发 = roster.IsStarter,
+                    在场 = roster.IsOnCourt
                 };
             })
             .ToList();
@@ -185,16 +281,74 @@ public partial class MainWindow : Window
     private void RefreshActivePlayers()
     {
         var match = CurrentMatch;
-        ActivePlayerCombo.ItemsSource = match is null
-            ? null
-            : _data.Rosters
-                .Where(roster => roster.MatchId == match.Id)
-                .Where(roster => ScoreboardSideCombo.SelectedItem is not TeamSide side || roster.Side == side)
-                .Select(roster => _data.Players.FirstOrDefault(player => player.Id == roster.PlayerId))
-                .Where(player => player is not null)
-                .OrderBy(player => player!.Team)
-                .ThenBy(player => player!.Name)
-                .ToList();
+        if (match is null)
+        {
+            HomeOnCourtList.ItemsSource = null;
+            AwayOnCourtList.ItemsSource = null;
+            SubstitutePlayerCombo.ItemsSource = null;
+            SelectedOnCourtPlayerText.Text = "未选择场上球员";
+            _selectedOnCourtPlayer = null;
+            return;
+        }
+
+        var selectedId = _selectedOnCourtPlayer?.Id;
+        var homePlayers = GetOnCourtPlayers(match, TeamSide.Home);
+        var awayPlayers = GetOnCourtPlayers(match, TeamSide.Away);
+        HomeOnCourtTitle.Text = $"{match.HomeTeamName} 场上球员";
+        AwayOnCourtTitle.Text = $"{match.AwayTeamName} 场上球员";
+        HomeOnCourtList.ItemsSource = homePlayers;
+        AwayOnCourtList.ItemsSource = awayPlayers;
+        _selectedOnCourtPlayer = homePlayers.Concat(awayPlayers).FirstOrDefault(player => player.Id == selectedId);
+        HomeOnCourtList.SelectedItem = homePlayers.FirstOrDefault(player => player.Id == _selectedOnCourtPlayer?.Id);
+        AwayOnCourtList.SelectedItem = awayPlayers.FirstOrDefault(player => player.Id == _selectedOnCourtPlayer?.Id);
+        RefreshSubstituteCandidates();
+        RefreshSelectedOnCourtText();
+    }
+
+    private List<Player> GetOnCourtPlayers(Match match, TeamSide side)
+    {
+        return _data.Rosters
+            .Where(roster => roster.MatchId == match.Id && roster.Side == side && roster.IsOnCourt)
+            .Select(roster => _data.Players.FirstOrDefault(player => player.Id == roster.PlayerId))
+            .Where(player => player is not null)
+            .OrderBy(player => player!.Team)
+            .ThenBy(player => player!.Name)
+            .Cast<Player>()
+            .ToList();
+    }
+
+    private void RefreshSubstituteCandidates()
+    {
+        var match = CurrentMatch;
+        var selected = _selectedOnCourtPlayer;
+        if (match is null || selected is null)
+        {
+            SubstitutePlayerCombo.ItemsSource = null;
+            return;
+        }
+
+        var selectedRoster = GetRosterForPlayer(match, selected);
+        if (selectedRoster is null)
+        {
+            SubstitutePlayerCombo.ItemsSource = null;
+            return;
+        }
+
+        SubstitutePlayerCombo.ItemsSource = _data.Rosters
+            .Where(roster => roster.MatchId == match.Id && roster.Side == selectedRoster.Side && !roster.IsOnCourt)
+            .Select(roster => _data.Players.FirstOrDefault(player => player.Id == roster.PlayerId))
+            .Where(player => player is not null)
+            .OrderBy(player => player!.Team)
+            .ThenBy(player => player!.Name)
+            .Cast<Player>()
+            .ToList();
+    }
+
+    private void RefreshSelectedOnCourtText()
+    {
+        SelectedOnCourtPlayerText.Text = _selectedOnCourtPlayer is null
+            ? "未选择场上球员"
+            : $"当前记录球员：{_selectedOnCourtPlayer.DisplayName}";
     }
 
     private void RefreshScoreboard()
@@ -233,6 +387,8 @@ public partial class MainWindow : Window
             ResetClockButton.IsEnabled = false;
             NextPeriodButton.IsEnabled = false;
             EndMatchButton.IsEnabled = false;
+            OnCourtPanel.IsEnabled = false;
+            SubstitutionPanel.IsEnabled = false;
             EventActionsPanel.IsEnabled = false;
             return;
         }
@@ -247,6 +403,8 @@ public partial class MainWindow : Window
         ResetClockButton.IsEnabled = !isFinished;
         NextPeriodButton.IsEnabled = !isFinished && !isRunning && match.CurrentPeriod < match.PeriodCount;
         EndMatchButton.IsEnabled = !isFinished;
+        OnCourtPanel.IsEnabled = !isFinished;
+        SubstitutionPanel.IsEnabled = match.Status == MatchStatus.Paused;
         EventActionsPanel.IsEnabled = isRunning;
     }
 
@@ -296,6 +454,7 @@ public partial class MainWindow : Window
             .Select(item =>
             {
                 var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(p => p.Id == item.PlayerId);
+                var relatedPlayer = item.RelatedPlayerId is null ? null : _data.Players.FirstOrDefault(p => p.Id == item.RelatedPlayerId);
                 return new EventRow
                 {
                     事件ID = item.Id,
@@ -304,7 +463,7 @@ public partial class MainWindow : Window
                     节次 = item.Period,
                     表钟 = FormatSeconds(item.ClockSecondsRemaining),
                     队伍 = item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                    球员 = player?.DisplayName ?? EventActorText(item),
+                    球员 = EventPlayerText(item, player, relatedPlayer),
                     事件 = EventText(item),
                     分值 = item.Points,
                     备注 = item.Note,
@@ -368,8 +527,16 @@ public partial class MainWindow : Window
             MatchEventKind.TimeoutRequest => "申请暂停",
             MatchEventKind.ClockControl => string.IsNullOrWhiteSpace(item.Note) ? "计时控制" : item.Note,
             MatchEventKind.RosterAudit => string.IsNullOrWhiteSpace(item.Note) ? "名单审计" : item.Note,
+            MatchEventKind.Substitution => "换人",
             _ => item.Kind.ToString()
         };
+    }
+
+    private static string EventPlayerText(MatchEvent item, Player? player, Player? relatedPlayer)
+    {
+        return item.Kind == MatchEventKind.Substitution
+            ? $"{player?.DisplayName ?? "未知球员"} -> {relatedPlayer?.DisplayName ?? "未知球员"}"
+            : player?.DisplayName ?? EventActorText(item);
     }
 
     private static string TeamSideText(TeamSide side)
@@ -631,13 +798,132 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "导出目录读取失败", MessageBoxButton.OK, MessageBoxImage.Error);
-            return Path.Combine(AppContext.BaseDirectory, "exports");
+            return _workspace.ExportDirectory;
         }
     }
 
     private void RefreshExportDirectoryText()
     {
         ExportDirectoryText.Text = $"导出目录：{_exportDirectory}";
+    }
+
+    private void CreateCompetition_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var workspace = _workspaceManager.CreateCompetition(CompetitionNameBox.Text.Trim(), CompetitionIdBox.Text.Trim());
+            SwitchWorkspace(workspace);
+            MessageBox.Show($"赛事已创建：{workspace.DirectoryPath}", "赛事管理", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "创建赛事失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void ImportCompetition_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择要导入的赛事结构化目录",
+            InitialDirectory = Directory.Exists(_workspace.DirectoryPath) ? _workspace.DirectoryPath : AppContext.BaseDirectory
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var workspace = _workspaceManager.ImportWorkspace(dialog.FolderName);
+            SwitchWorkspace(workspace);
+            MessageBox.Show($"赛事已导入并打开：{workspace.DirectoryPath}", "赛事管理", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "导入赛事失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void SwitchCompetition_Click(object sender, RoutedEventArgs e)
+    {
+        SwitchToSelectedCompetition();
+    }
+
+    private void CompetitionListCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRefreshingCompetitionList)
+        {
+            return;
+        }
+
+        SwitchToSelectedCompetition();
+    }
+
+    private void SwitchToSelectedCompetition()
+    {
+        if (CompetitionListCombo.SelectedItem is not CompetitionWorkspace selected)
+        {
+            MessageBox.Show("请先从已导入赛事列表中选择赛事。", "赛事管理", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (selected.DirectoryPath.Equals(_workspace.DirectoryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            var workspace = _workspaceManager.OpenWorkspace(selected.DirectoryPath);
+            SwitchWorkspace(workspace);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "切换赛事失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshCompetitionWorkspace();
+        }
+    }
+
+    private void SaveCompetition_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            UpdateClockFromElapsed();
+            SaveData();
+            var workspace = _workspaceManager.UpdateManifest(_workspace, CompetitionNameBox.Text.Trim(), CompetitionIdBox.Text.Trim());
+            SwitchWorkspace(workspace, saveCurrent: false);
+            MessageBox.Show("赛事信息已保存。赛事 ID 修改后，只接受新 ID 归属的比赛日志导入。", "赛事管理", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "保存赛事失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void ExportCompetition_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择赛事导出目标目录",
+            InitialDirectory = Directory.Exists(_exportDirectory) ? _exportDirectory : _workspace.ExportDirectory
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        try
+        {
+            UpdateClockFromElapsed();
+            SaveData();
+            var exportPath = _workspaceManager.ExportWorkspace(_workspace, dialog.FolderName);
+            MessageBox.Show($"赛事结构化目录已导出：{exportPath}", "赛事导出完成", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "赛事导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void UpdatePhotoPreview()
@@ -883,6 +1169,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (roster.IsOnCourt && match.Status != MatchStatus.NotStarted)
+        {
+            MessageBox.Show("当前场上球员不能直接移出名单，请在暂停状态先完成换人。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         var audit = PrepareRosterAudit(match, $"移出名单：{selected.球员}");
         if (audit is null)
         {
@@ -939,6 +1231,15 @@ public partial class MainWindow : Window
             }
         }
 
+        if (existingRoster is not null
+            && existingRoster.IsOnCourt
+            && match.Status != MatchStatus.NotStarted
+            && (existingRoster.PlayerId != player.Id || existingRoster.Side != side))
+        {
+            MessageBox.Show("已在场球员不能通过名单编辑直接改人或改阵营，请在暂停状态使用换人。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         string jerseyNumber;
         try
         {
@@ -956,12 +1257,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        var isStarter = StarterBox.IsChecked == true;
+        if (match.Status == MatchStatus.NotStarted
+            && isStarter
+            && _data.Rosters.Count(item => item.MatchId == match.Id && item.Side == side && item.Id != existingRoster?.Id && item.IsStarter) >= 5)
+        {
+            MessageBox.Show("同一阵营首发/场上球员不能超过 5 人。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         var beforeText = existingRoster is null ? "无" : DescribeRoster(existingRoster, match);
         roster = existingRoster ?? new MatchRoster { MatchId = match.Id };
         roster.PlayerId = player.Id;
         roster.Side = side;
         roster.JerseyNumber = jerseyNumber;
-        roster.IsStarter = StarterBox.IsChecked == true;
+        roster.IsStarter = isStarter;
+        roster.IsOnCourt = match.Status == MatchStatus.NotStarted
+            ? isStarter
+            : existingRoster?.IsOnCourt == true && existingRoster.PlayerId == player.Id && existingRoster.Side == side;
         if (existingRoster is null)
         {
             _data.Rosters.Add(roster);
@@ -1031,6 +1344,11 @@ public partial class MainWindow : Window
         return $"{(roster.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName)} {player?.DisplayName ?? "未知球员"}，号码 {roster.JerseyNumber}，首发 {FormatBool(roster.IsStarter)}";
     }
 
+    private MatchRoster? GetRosterForPlayer(Match match, Player player)
+    {
+        return _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id);
+    }
+
     private static string FormatBool(bool value) => value ? "是" : "否";
 
     private static string NormalizeJerseyNumber(string text)
@@ -1073,11 +1391,50 @@ public partial class MainWindow : Window
         RefreshRosters();
         RefreshScoreboard();
         RefreshEvents();
+        RefreshMatchHistory();
     }
 
-    private void ScoreboardSideCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void MatchesHistoryGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        RefreshActivePlayers();
+        SelectMatchFromHistory();
+    }
+
+    private void MatchesHistoryGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        SelectMatchFromHistory();
+    }
+
+    private void SelectMatchFromHistory()
+    {
+        if (_isRefreshingMatchHistory || MatchesHistoryGrid.SelectedItem is not MatchHistoryRow row)
+        {
+            return;
+        }
+
+        var match = _data.Matches.FirstOrDefault(item => item.Id == row.比赛ID);
+        if (match is null || CurrentMatch?.Id == match.Id)
+        {
+            return;
+        }
+
+        MatchCombo.SelectedItem = match;
+    }
+
+    private void OnCourtPlayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender == HomeOnCourtList && HomeOnCourtList.SelectedItem is Player homePlayer)
+        {
+            AwayOnCourtList.SelectedItem = null;
+            _selectedOnCourtPlayer = homePlayer;
+        }
+        else if (sender == AwayOnCourtList && AwayOnCourtList.SelectedItem is Player awayPlayer)
+        {
+            HomeOnCourtList.SelectedItem = null;
+            _selectedOnCourtPlayer = awayPlayer;
+        }
+
+        RefreshSubstituteCandidates();
+        RefreshSelectedOnCourtText();
     }
 
     private void EventFilter_Changed(object sender, SelectionChangedEventArgs e)
@@ -1289,10 +1646,40 @@ public partial class MainWindow : Window
 
     private bool ValidateRosterBeforeClockStart(Match match)
     {
+        if (match.Status == MatchStatus.NotStarted)
+        {
+            foreach (var roster in _data.Rosters.Where(roster => roster.MatchId == match.Id))
+            {
+                roster.IsOnCourt = roster.IsStarter;
+            }
+        }
+
         var homeRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Home);
         var awayRosterCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Away);
         if (homeRosterCount > 0 && awayRosterCount > 0)
         {
+            var homeOnCourtCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Home && roster.IsOnCourt);
+            var awayOnCourtCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && roster.Side == TeamSide.Away && roster.IsOnCourt);
+            if (homeOnCourtCount == 0 || awayOnCourtCount == 0)
+            {
+                MessageBox.Show(
+                    $"开始比赛前双方都至少需要 1 名首发/场上球员。\n当前主队 {homeOnCourtCount} 名，客队 {awayOnCourtCount} 名。",
+                    "首发不完整",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
+            if (homeOnCourtCount > 5 || awayOnCourtCount > 5)
+            {
+                MessageBox.Show(
+                    $"同一阵营场上球员不能超过 5 人。\n当前主队 {homeOnCourtCount} 名，客队 {awayOnCourtCount} 名。",
+                    "场上人数不正确",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return false;
+            }
+
             var emptyJerseyCount = _data.Rosters.Count(roster => roster.MatchId == match.Id && string.IsNullOrWhiteSpace(roster.JerseyNumber));
             if (emptyJerseyCount == 0)
             {
@@ -1357,6 +1744,72 @@ public partial class MainWindow : Window
     private void Turnover_Click(object sender, RoutedEventArgs e) => RecordEvent(MatchEventKind.Turnover);
     private void TimeoutRequest_Click(object sender, RoutedEventArgs e) => RecordTimeoutRequest();
 
+    private void SubstitutePlayer_Click(object sender, RoutedEventArgs e)
+    {
+        var match = CurrentMatch;
+        var outgoingPlayer = ActivePlayer;
+        var incomingPlayer = SubstitutePlayerCombo.SelectedItem as Player;
+        if (match is null || outgoingPlayer is null || incomingPlayer is null)
+        {
+            MessageBox.Show("请先选择要换下的场上球员和要换上的候补球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        UpdateClockFromElapsed();
+        if (match.Status != MatchStatus.Paused)
+        {
+            MessageBox.Show($"当前比赛状态为“{MatchStatusText(match.Status)}”，只有暂停中才能换人。", "状态不允许", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var outgoingRoster = GetRosterForPlayer(match, outgoingPlayer);
+        var incomingRoster = GetRosterForPlayer(match, incomingPlayer);
+        if (outgoingRoster is null || !outgoingRoster.IsOnCourt)
+        {
+            MessageBox.Show("要换下的球员不在当前场上名单中。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshActivePlayers();
+            return;
+        }
+
+        if (incomingRoster is null || incomingRoster.Side != outgoingRoster.Side || incomingRoster.IsOnCourt)
+        {
+            MessageBox.Show("换上球员必须是同一阵营的候补球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            RefreshActivePlayers();
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"确认换人？\n{(outgoingRoster.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName)}：{outgoingPlayer.DisplayName} -> {incomingPlayer.DisplayName}",
+            "确认换人",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (result != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        outgoingRoster.IsOnCourt = false;
+        incomingRoster.IsOnCourt = true;
+        _data.Events.Add(new MatchEvent
+        {
+            MatchId = match.Id,
+            PlayerId = outgoingPlayer.Id,
+            RelatedPlayerId = incomingPlayer.Id,
+            Side = outgoingRoster.Side,
+            Kind = MatchEventKind.Substitution,
+            Period = match.CurrentPeriod,
+            ClockSecondsRemaining = match.RemainingSeconds,
+            Note = EventNoteBox.Text.Trim()
+        });
+
+        _selectedOnCourtPlayer = incomingPlayer;
+        EventNoteBox.Text = "";
+        SaveData();
+        RefreshRosters();
+        RefreshScoreboard();
+        RefreshEvents();
+    }
+
     private void RecordTimeoutRequest()
     {
         var match = CurrentMatch;
@@ -1373,14 +1826,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        var side = ScoreboardSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
         var player = ActivePlayer;
-        var roster = player is null ? null : _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id && item.Side == side);
+        var roster = player is null ? null : _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id && item.IsOnCourt);
+        if (roster is null)
+        {
+            MessageBox.Show("请先在场上球员区域选择申请暂停的球员。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         _data.Events.Add(new MatchEvent
         {
             MatchId = match.Id,
-            PlayerId = roster?.PlayerId,
-            Side = side,
+            PlayerId = roster.PlayerId,
+            Side = roster.Side,
             Kind = MatchEventKind.TimeoutRequest,
             Period = match.CurrentPeriod,
             ClockSecondsRemaining = match.RemainingSeconds,
@@ -1410,10 +1868,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var roster = _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id);
+        var roster = _data.Rosters.FirstOrDefault(item => item.MatchId == match.Id && item.PlayerId == player.Id && item.IsOnCourt);
         if (roster is null)
         {
-            MessageBox.Show("该球员不在当前比赛名单中。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("该球员不在当前场上球员名单中。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -1555,7 +2013,7 @@ public partial class MainWindow : Window
         var dialog = new OpenFolderDialog
         {
             Title = "选择 CSV 导出目录",
-            InitialDirectory = Directory.Exists(_exportDirectory) ? _exportDirectory : AppContext.BaseDirectory
+            InitialDirectory = Directory.Exists(_exportDirectory) ? _exportDirectory : _workspace.ExportDirectory
         };
         if (dialog.ShowDialog(this) != true)
         {
@@ -1573,6 +2031,107 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(ex.Message, "导出目录设置失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private void ExportSelectedMatchLogs_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedMatchIds = CheckedMatchHistoryRows.Select(row => row.比赛ID).ToHashSet();
+        var matches = selectedMatchIds.Count == 0
+            ? CurrentMatch is null ? new List<Match>() : [CurrentMatch]
+            : _data.Matches.Where(match => selectedMatchIds.Contains(match.Id)).ToList();
+        if (matches.Count == 0)
+        {
+            MessageBox.Show("请先选择要导出的比赛日志。", "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_exportDirectory);
+            var batchDirectory = Path.Combine(_exportDirectory, "match-logs", $"{_workspace.Manifest.CompetitionId}-{DateTime.Now:yyyyMMdd-HHmmss-fff}");
+            Directory.CreateDirectory(batchDirectory);
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            foreach (var match in matches)
+            {
+                var export = MatchLogService.Build(_data, _workspace.Manifest.CompetitionId, match);
+                var exportPath = Path.Combine(
+                    batchDirectory,
+                    $"matchlog-{_workspace.Manifest.CompetitionId}-{match.Id}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
+                File.WriteAllText(exportPath, JsonSerializer.Serialize(export, options), Encoding.UTF8);
+            }
+
+            MessageBox.Show($"已导出 {matches.Count} 个结构化比赛日志：{batchDirectory}", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"导出比赛日志失败：{ex.Message}", "导出失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ImportMatchLogs_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "比赛日志 JSON|*.json|所有文件|*.*",
+            Multiselect = true,
+            InitialDirectory = Directory.Exists(_exportDirectory) ? _exportDirectory : _workspace.ExportDirectory
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        var imported = 0;
+        var skipped = 0;
+        var rejected = new List<string>();
+        foreach (var fileName in dialog.FileNames)
+        {
+            try
+            {
+                var export = JsonSerializer.Deserialize<MatchLogExport>(File.ReadAllText(fileName));
+                if (export is null)
+                {
+                    rejected.Add($"{Path.GetFileName(fileName)}：文件内容为空。");
+                    continue;
+                }
+
+                var result = MatchLogService.Import(_data, export, _workspace.Manifest.CompetitionId);
+                if (result.Status == MatchLogImportStatus.Imported)
+                {
+                    imported++;
+                }
+                else if (result.Status == MatchLogImportStatus.Skipped)
+                {
+                    skipped++;
+                }
+                else
+                {
+                    rejected.Add($"{Path.GetFileName(fileName)}：{result.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                rejected.Add($"{Path.GetFileName(fileName)}：{ex.Message}");
+            }
+        }
+
+        if (imported > 0)
+        {
+            SaveData();
+            RefreshAll();
+        }
+
+        var message = $"导入完成。成功 {imported} 个，重复跳过 {skipped} 个，拒绝 {rejected.Count} 个。";
+        if (rejected.Count > 0)
+        {
+            message += "\n\n" + string.Join("\n", rejected.Take(8));
+            if (rejected.Count > 8)
+            {
+                message += $"\n还有 {rejected.Count - 8} 个错误未显示。";
+            }
+        }
+
+        MessageBox.Show(message, "比赛日志导入", MessageBoxButton.OK, rejected.Count == 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private string BuildMatchCsv(Match match)
@@ -1650,6 +2209,7 @@ public partial class MainWindow : Window
         foreach (var item in _data.Events.Where(item => item.MatchId == match.Id).OrderBy(item => item.CreatedAt))
         {
             var player = item.PlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.PlayerId);
+            var relatedPlayer = item.RelatedPlayerId is null ? null : _data.Players.FirstOrDefault(player => player.Id == item.RelatedPlayerId);
             AppendCsvRow(
                 builder,
                 item.IsVoided ? "作废" : "有效",
@@ -1657,7 +2217,7 @@ public partial class MainWindow : Window
                 item.Period.ToString(CultureInfo.InvariantCulture),
                 FormatSeconds(item.ClockSecondsRemaining),
                 item.Kind == MatchEventKind.ClockControl ? "计时控制" : item.Side == TeamSide.Home ? match.HomeTeamName : match.AwayTeamName,
-                player?.DisplayName ?? EventActorText(item),
+                EventPlayerText(item, player, relatedPlayer),
                 EventText(item),
                 item.Points.ToString(CultureInfo.InvariantCulture),
                 item.Note,
@@ -1685,6 +2245,7 @@ public partial class MainWindow : Window
         {
             MatchEventKind.TimeoutRequest => "球队",
             MatchEventKind.RosterAudit => "名单审计",
+            MatchEventKind.Substitution => "换人",
             _ => "系统"
         };
     }
@@ -1698,6 +2259,7 @@ public partial class MainWindow : Window
         public string 队伍 { get; set; } = "";
         public string 号码 { get; set; } = "";
         public bool 首发 { get; set; }
+        public bool 在场 { get; set; }
     }
 
     private sealed class EventRow
@@ -1715,6 +2277,19 @@ public partial class MainWindow : Window
         public string 作废时间 { get; set; } = "";
         public string 作废原因 { get; set; } = "";
         public string 操作人 { get; set; } = "";
+    }
+
+    private sealed class MatchHistoryRow
+    {
+        public bool 导出 { get; set; }
+        public Guid 比赛ID { get; set; }
+        public string 创建时间 { get; set; } = "";
+        public string 比赛名 { get; set; } = "";
+        public string 主队 { get; set; } = "";
+        public string 客队 { get; set; } = "";
+        public string 状态 { get; set; } = "";
+        public int 名单数 { get; set; }
+        public int 事件数 { get; set; }
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)

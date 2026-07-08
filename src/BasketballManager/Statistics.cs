@@ -124,6 +124,8 @@ public static class Statistics
                     break;
                 case MatchEventKind.RosterAudit:
                     break;
+                case MatchEventKind.Substitution:
+                    break;
             }
         }
 

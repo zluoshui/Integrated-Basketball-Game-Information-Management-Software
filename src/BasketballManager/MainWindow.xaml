@@ -28,6 +28,32 @@
 
     <Grid Margin="12">
         <TabControl>
+            <TabItem Header="赛事管理">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0">
+                        <TextBlock Text="赛事名" />
+                        <TextBox x:Name="CompetitionNameBox" Width="180" />
+                        <TextBlock Text="赛事 ID" />
+                        <TextBox x:Name="CompetitionIdBox" Width="150" />
+                        <TextBlock Text="已导入赛事" />
+                        <ComboBox x:Name="CompetitionListCombo" Width="220" DisplayMemberPath="Manifest.Name" SelectionChanged="CompetitionListCombo_SelectionChanged" />
+                        <Button Content="创建赛事" Click="CreateCompetition_Click" />
+                        <Button Content="导入赛事" Click="ImportCompetition_Click" />
+                        <Button Content="切换到选中赛事" Click="SwitchCompetition_Click" />
+                        <Button Content="保存赛事信息" Click="SaveCompetition_Click" />
+                        <Button Content="导出当前赛事目录" Click="ExportCompetition_Click" />
+                    </WrapPanel>
+                    <TextBlock Grid.Row="1"
+                               x:Name="CompetitionPathText"
+                               Text="赛事目录："
+                               TextWrapping="Wrap" />
+                </Grid>
+            </TabItem>
+
             <TabItem Header="球员管理">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -234,13 +260,29 @@
                             <Button x:Name="NextPeriodButton" Content="下一节" Click="NextPeriod_Click" />
                             <Button x:Name="EndMatchButton" Content="结束比赛" Click="EndMatch_Click" />
                         </WrapPanel>
-                        <WrapPanel x:Name="EventActionsPanel">
-                            <TextBlock Text="阵营" />
-                            <ComboBox x:Name="ScoreboardSideCombo" Width="100" SelectionChanged="ScoreboardSideCombo_SelectionChanged" />
-                            <TextBlock Text="记录球员" />
-                            <ComboBox x:Name="ActivePlayerCombo" DisplayMemberPath="DisplayName" Width="240" />
+                        <Grid x:Name="OnCourtPanel" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                <TextBlock x:Name="HomeOnCourtTitle" Text="主队场上球员" FontWeight="Bold" />
+                                <ListBox x:Name="HomeOnCourtList" DisplayMemberPath="DisplayName" Height="96" SelectionChanged="OnCourtPlayer_SelectionChanged" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                <TextBlock x:Name="AwayOnCourtTitle" Text="客队场上球员" FontWeight="Bold" />
+                                <ListBox x:Name="AwayOnCourtList" DisplayMemberPath="DisplayName" Height="96" SelectionChanged="OnCourtPlayer_SelectionChanged" />
+                            </StackPanel>
+                        </Grid>
+                        <WrapPanel x:Name="SubstitutionPanel" Margin="0,4,0,0">
+                            <TextBlock x:Name="SelectedOnCourtPlayerText" Text="未选择场上球员" />
+                            <TextBlock Text="换上球员" />
+                            <ComboBox x:Name="SubstitutePlayerCombo" DisplayMemberPath="DisplayName" Width="220" />
+                            <Button Content="替换" Click="SubstitutePlayer_Click" />
                             <TextBlock Text="事件备注" />
-                            <TextBox x:Name="EventNoteBox" Width="160" />
+                            <TextBox x:Name="EventNoteBox" Width="180" />
+                        </WrapPanel>
+                        <WrapPanel x:Name="EventActionsPanel">
                             <Button Content="+1" Click="ScoreOne_Click" />
                             <Button Content="+2" Click="ScoreTwo_Click" />
                             <Button Content="+3" Click="ScoreThree_Click" />
@@ -276,6 +318,8 @@
                         <TextBox x:Name="VoidOperatorBox" Width="120" />
                         <Button Content="设置导出位置" Click="SetExportDirectory_Click" />
                         <Button Content="导出 CSV" Click="ExportCsv_Click" />
+                        <Button Content="导出选中比赛日志 JSON" Click="ExportSelectedMatchLogs_Click" />
+                        <Button Content="导入比赛日志 JSON" Click="ImportMatchLogs_Click" />
                         <TextBlock x:Name="ExportDirectoryText" Text="导出目录未设置" />
                     </WrapPanel>
                     <WrapPanel Grid.Row="1" Margin="0,4,0,8">
@@ -289,15 +333,38 @@
                     <Grid Grid.Row="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <DataGrid x:Name="TeamStatsGrid"
+                        <DataGrid x:Name="MatchesHistoryGrid"
                                   Grid.Row="0"
+                                  MaxHeight="150"
+                                  Margin="0,0,0,8"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="False"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow"
+                                  SelectionChanged="MatchesHistoryGrid_SelectionChanged"
+                                  MouseDoubleClick="MatchesHistoryGrid_MouseDoubleClick">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="导出" Binding="{Binding 导出, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="60" />
+                                <DataGridTextColumn Header="比赛 ID" Binding="{Binding 比赛ID}" Width="2*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="创建时间" Binding="{Binding 创建时间}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="比赛名" Binding="{Binding 比赛名}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="主队" Binding="{Binding 主队}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="客队" Binding="{Binding 客队}" Width="*" IsReadOnly="True" />
+                                <DataGridTextColumn Header="状态" Binding="{Binding 状态}" Width="80" IsReadOnly="True" />
+                                <DataGridTextColumn Header="名单" Binding="{Binding 名单数}" Width="70" IsReadOnly="True" />
+                                <DataGridTextColumn Header="事件" Binding="{Binding 事件数}" Width="70" IsReadOnly="True" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid x:Name="TeamStatsGrid"
+                                  Grid.Row="1"
                                   MaxHeight="120"
                                   AutoGenerateColumns="True"
                                   IsReadOnly="True" />
                     <DataGrid x:Name="EventsGrid"
-                              Grid.Row="1"
+                              Grid.Row="2"
                               AutoGenerateColumns="True"
                               IsReadOnly="True" />
                     </Grid>

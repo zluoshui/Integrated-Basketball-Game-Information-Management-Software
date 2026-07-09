@@ -48,7 +48,10 @@ public static class UpdateChecker
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var manifest = await JsonSerializer.DeserializeAsync<UpdateManifest>(stream, cancellationToken: cancellationToken);
+            var manifest = await JsonSerializer.DeserializeAsync<UpdateManifest>(
+                stream,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+                cancellationToken);
             if (manifest is null || string.IsNullOrWhiteSpace(manifest.LatestVersion))
             {
                 result.Message = "更新清单为空或格式不正确。";

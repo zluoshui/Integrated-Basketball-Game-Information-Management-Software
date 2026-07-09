@@ -8,7 +8,8 @@
 2. [domain-and-data.md](domain-and-data.md)：理解赛事、比赛、球员、名单、事件、数据库和导入导出契约。
 3. [operator-workflows.md](operator-workflows.md)：理解软件面向记分台和赛事管理人员的实际工作流。
 4. [developer-handoff.md](developer-handoff.md)：理解本地开发、验证命令、常见风险和交接清单。
-5. [decision-log.md](decision-log.md)：理解已经做出的关键技术和产品决策。
+5. [maintenance-and-release-guide.md](maintenance-and-release-guide.md)：面向新手的维护、构建、发布和更新检查操作步骤。
+6. [decision-log.md](decision-log.md)：理解已经做出的关键技术和产品决策。
 
 ## 当前项目快照
 
@@ -26,4 +27,3 @@
 - 修改模块边界、服务职责、状态流转方式或大型重构方向时，更新 [architecture.md](architecture.md)。
 - 修改构建、自检、发布、测试、已知风险或交接步骤时，更新 [developer-handoff.md](developer-handoff.md)。
 - 形成会影响后续实现路线的产品或技术决策时，追加到 [decision-log.md](decision-log.md)。
-

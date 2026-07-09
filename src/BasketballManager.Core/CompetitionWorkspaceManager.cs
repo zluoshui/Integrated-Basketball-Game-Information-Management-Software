@@ -240,6 +240,49 @@ public sealed class CompetitionWorkspaceManager
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
     }
 
+    public void DeleteCompetition(string competitionId)
+    {
+        ValidateCompetitionId(competitionId);
+        var workspacePath = Path.Combine(CompetitionsDirectory, competitionId);
+        if (!Directory.Exists(workspacePath) || !IsManagedWorkspacePath(workspacePath))
+        {
+            throw new InvalidOperationException("未找到可删除的赛事。");
+        }
+
+        SqliteConnection.ClearAllPools();
+        var settings = LoadSettings();
+        var isCurrent = settings.CurrentWorkspacePath.Equals(workspacePath, StringComparison.OrdinalIgnoreCase);
+        settings.RecentWorkspacePaths.RemoveAll(path => path.Equals(workspacePath, StringComparison.OrdinalIgnoreCase));
+        if (isCurrent)
+        {
+            settings.CurrentWorkspacePath = "";
+        }
+        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
+
+        // Retry a few times in case SQLite handle release lags.
+        Exception? last = null;
+        for (var i = 0; i < 5; i++)
+        {
+            try
+            {
+                Directory.Delete(workspacePath, recursive: true);
+                last = null;
+                break;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                Thread.Sleep(120);
+                SqliteConnection.ClearAllPools();
+            }
+        }
+
+        if (last is not null)
+        {
+            throw new InvalidOperationException($"删除赛事失败：{last.Message}", last);
+        }
+    }
+
     public static void ValidateCompetitionId(string competitionId)
     {
         if (string.IsNullOrWhiteSpace(competitionId) || !CompetitionIdPattern.IsMatch(competitionId))

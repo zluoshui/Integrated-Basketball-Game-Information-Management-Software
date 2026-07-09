@@ -6,7 +6,8 @@
 
 ## 当前技术栈
 
-- UI：WPF。
+- UI（经典）：WPF code-behind，`start_test_app.bat`。
+- UI（现代）：WebView2 桌面壳 + React/Vite SPA + 本地 ASP.NET Core Minimal API，`start_modern_app.bat`。
 - 语言和运行时：C#、.NET 10。
 - 数据库：SQLite。
 - 数据序列化：JSON 用于结构化比赛日志和赛事 manifest。
@@ -14,13 +15,12 @@
 
 ## 主要模块
 
-- `MainWindow.xaml` / `MainWindow.xaml.cs`：当前主要 UI 和交互入口，仍沿用 WPF code-behind 风格。
-- `Models.cs`：领域模型、枚举、赛事 manifest、工作区模型、结构化日志 DTO。
-- `DataStore.cs`：SQLite 初始化、迁移、读写、备份、自定义字段、照片路径、导出目录配置。
-- `CompetitionWorkspaceManager.cs`：赛事工作区创建、导入、导出、列出、打开和最近赛事设置。
-- `MatchLogService.cs`：结构化比赛日志 JSON 导出和导入。
-- `Statistics.cs`：从事件流水投影比分、球队统计和球员技术统计。
-- `App.xaml.cs`：应用启动和 `--self-check` 自检入口。
+- `BasketballManager.Core`：领域模型、SQLite、赛事工作区、统计投影、会话 `AppSession`。
+- `BasketballManager.Api`：REST API，默认绑定本机环回地址；可托管 SPA 静态文件。
+- `BasketballManager.Desktop`：WebView2 壳，启动 API 并加载本地界面。
+- `BasketballManager.WebUI`：现代前端源码（Vite + React + TypeScript）。
+- `BasketballManager`：旧 WPF 界面，继续用于回归与 `--self-check`。
+- `preview/modern-ui`：静态高保真预览（审阅用）。
 
 ## 状态与数据流
 

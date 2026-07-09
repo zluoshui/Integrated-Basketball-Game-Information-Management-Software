@@ -48,3 +48,9 @@
 
 原因：学校使用场景下，工作人员可能一边准备下一场名单，一边对当前场进行记分，同时复核另一场日志。共享单一 `CurrentMatch` 会造成误切换和误操作。
 
+## 2026-07-09：采用 WebView2 + 本地 API + React 现代前端
+
+决定新增现代桌面壳：`BasketballManager.Desktop`（WebView2）加载本机 `BasketballManager.Api` 托管的 React SPA，业务逻辑下沉到 `BasketballManager.Core`。旧 WPF 通过 `start_test_app.bat` 保留为回归入口。
+
+原因：需要 Web 级现代交互与后续公网面板扩展能力，同时不丢掉已验证的 SQLite 业务数据层。
+

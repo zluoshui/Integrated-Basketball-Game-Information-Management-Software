@@ -66,8 +66,7 @@ $Notes = @"
 - LICENSE / README.md / update.json / CONTRIBUTORS.md
 
 ## Notes
-- First open-source release candidate.
-- Replace GitHub placeholder URLs in AppInfo.cs / update.json before public publish.
+- First open-source release.
 - Built-in demo competition is created automatically when no competition exists.
 "@
 Set-Content -Path (Join-Path $OutRoot "RELEASE_NOTES.md") -Value $Notes -Encoding UTF8

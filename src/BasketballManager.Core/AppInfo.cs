@@ -9,14 +9,8 @@ public static class AppInfo
     public const string Version = "0.0.1";
     public const string PrimaryAuthor = "张学儒";
     public const string SecondaryAuthors = "刘昭元; MSE,CUFE";
-    /// <summary>
-    /// Placeholder repository URL for future GitHub collaboration.
-    /// </summary>
-    public const string GitHubRepositoryUrl = "https://github.com/example/basketball-manager";
-    /// <summary>
-    /// Placeholder update endpoint. Returns latest release metadata when configured.
-    /// </summary>
-    public const string UpdateManifestUrl = "https://raw.githubusercontent.com/example/basketball-manager/main/update.json";
+    public const string GitHubRepositoryUrl = "https://github.com/zluoshui/Integrated-Basketball-Game-Information-Management-Software";
+    public const string UpdateManifestUrl = "https://raw.githubusercontent.com/zluoshui/Integrated-Basketball-Game-Information-Management-Software/main/update.json";
 }
 
 public sealed class UpdateCheckResult
@@ -41,7 +35,7 @@ public static class UpdateChecker
         var result = new UpdateCheckResult
         {
             CurrentVersion = AppInfo.Version,
-            Message = "更新检查接口已预留，当前使用占位配置。"
+            Message = "正在检查更新。"
         };
 
         try
@@ -49,7 +43,7 @@ public static class UpdateChecker
             using var response = await Http.GetAsync(AppInfo.UpdateManifestUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                result.Message = $"无法访问更新源（HTTP {(int)response.StatusCode}）。仓库地址与更新接口可在后续发布时配置。";
+                result.Message = $"无法访问更新源（HTTP {(int)response.StatusCode}）。请确认更新清单已发布。";
                 return result;
             }
 

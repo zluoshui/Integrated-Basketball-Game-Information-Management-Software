@@ -323,12 +323,12 @@ export default function App() {
                 <div>GitHub 项目地址</div>
                 <a
                   className="github-link"
-                  href={appInfo?.githubUrl || 'https://github.com/example/basketball-manager'}
+                  href={appInfo?.githubUrl || 'https://github.com/zluoshui/Integrated-Basketball-Game-Information-Management-Software'}
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {(appInfo?.githubUrl || 'https://github.com/example/basketball-manager').replace(/^https?:\/\//, '')}
+                  {(appInfo?.githubUrl || 'https://github.com/zluoshui/Integrated-Basketball-Game-Information-Management-Software').replace(/^https?:\/\//, '')}
                 </a>
               </div>
             </div>

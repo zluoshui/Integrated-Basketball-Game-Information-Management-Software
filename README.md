@@ -111,11 +111,11 @@ publish/v0.0.1/
   update.json
 ```
 
-## 更新检查占位
+## 更新检查
 
 - 软件左下角提供 GitHub 地址与“检查更新”按钮
 - 默认更新清单：`update.json`
-- 当前为占位地址，可在 `src/BasketballManager.Core/AppInfo.cs` 中修改：
+- 发布地址集中在 `src/BasketballManager.Core/AppInfo.cs` 中：
   - `GitHubRepositoryUrl`
   - `UpdateManifestUrl`
 

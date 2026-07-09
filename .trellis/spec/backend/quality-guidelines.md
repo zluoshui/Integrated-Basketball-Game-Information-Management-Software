@@ -49,10 +49,12 @@ Questions to answer:
 - Scripts may honor `DOTNET_EXE` when a developer needs a custom SDK path.
 - Scripts and README commands must not hard-code personal absolute paths such as `D:\Programs\dotnet\dotnet.exe`.
 - Publish output must stay under ignored build folders such as `bin/` or `obj/`.
+- WPF run scripts that build a desktop project may remove only that project's `obj\<Configuration>\<TargetFramework>` folder before build so XAML generated files such as `App.g.cs` and `MainWindow.g.cs` are recreated.
 
 #### 4. Validation & Error Matrix
 - `dotnet` missing and `DOTNET_EXE` unset -> show a plain error telling the user to install .NET 10 SDK or set `DOTNET_EXE`.
 - Build failure -> keep the command output visible; do not swallow errors.
+- Missing WPF generated `.g.cs` files under `obj` -> clean only the affected project's target-framework intermediate folder, then rebuild.
 - Publish output outside ignored folders -> update `.gitignore` or output path before committing.
 
 #### 5. Good/Base/Bad Cases

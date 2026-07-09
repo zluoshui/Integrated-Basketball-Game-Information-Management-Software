@@ -12,9 +12,12 @@ if "%DOTNET_EXE%"=="" (
 )
 
 set "API_PROJECT=%APP_ROOT%src\BasketballManager.Api\BasketballManager.Api.csproj"
+set "DESKTOP_PROJECT_DIR=%APP_ROOT%src\BasketballManager.Desktop"
 set "DESKTOP_PROJECT=%APP_ROOT%src\BasketballManager.Desktop\BasketballManager.Desktop.csproj"
 set "WEBUI_DIR=%APP_ROOT%src\BasketballManager.WebUI"
 set "API_WWWROOT=%APP_ROOT%src\BasketballManager.Api\wwwroot"
+set "CONFIGURATION=Debug"
+set "DESKTOP_TARGET_FRAMEWORK=net10.0-windows"
 
 if not exist "%API_PROJECT%" (
   echo Cannot find API project.
@@ -57,13 +60,17 @@ if not exist "%API_WWWROOT%\index.html" (
 )
 
 echo Building Desktop shell + API output with wwwroot...
-"%DOTNET_EXE%" build "%API_PROJECT%" -c Debug -v:minimal
+"%DOTNET_EXE%" build "%API_PROJECT%" -c %CONFIGURATION% -v:minimal
 if errorlevel 1 goto :fail
-"%DOTNET_EXE%" build "%DESKTOP_PROJECT%" -c Debug -v:minimal
+if exist "%DESKTOP_PROJECT_DIR%\obj\%CONFIGURATION%\%DESKTOP_TARGET_FRAMEWORK%" (
+  echo Cleaning stale Desktop WPF generated files...
+  rmdir /s /q "%DESKTOP_PROJECT_DIR%\obj\%CONFIGURATION%\%DESKTOP_TARGET_FRAMEWORK%"
+)
+"%DOTNET_EXE%" build "%DESKTOP_PROJECT%" -c %CONFIGURATION% -v:minimal
 if errorlevel 1 goto :fail
 
-set "DESKTOP_EXE=%APP_ROOT%src\BasketballManager.Desktop\bin\Debug\net10.0-windows\BasketballManager.Desktop.exe"
-set "API_OUTPUT_INDEX=%APP_ROOT%src\BasketballManager.Api\bin\Debug\net10.0\wwwroot\index.html"
+set "DESKTOP_EXE=%DESKTOP_PROJECT_DIR%\bin\%CONFIGURATION%\%DESKTOP_TARGET_FRAMEWORK%\BasketballManager.Desktop.exe"
+set "API_OUTPUT_INDEX=%APP_ROOT%src\BasketballManager.Api\bin\%CONFIGURATION%\net10.0\wwwroot\index.html"
 if not exist "%DESKTOP_EXE%" (
   echo Cannot find desktop executable:
   echo "%DESKTOP_EXE%"

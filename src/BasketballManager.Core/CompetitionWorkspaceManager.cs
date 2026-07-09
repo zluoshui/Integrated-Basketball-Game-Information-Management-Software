@@ -7,7 +7,7 @@ namespace BasketballManager;
 
 public sealed class CompetitionWorkspaceManager
 {
-    private const string DefaultCompetitionId = "legacy001";
+    private const string DefaultCompetitionId = "demo001";
     private static readonly Regex CompetitionIdPattern = new("^[A-Za-z0-9]+$", RegexOptions.Compiled);
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -49,8 +49,46 @@ public sealed class CompetitionWorkspaceManager
             return MigrateLegacyWorkspace(legacyDatabasePath);
         }
 
-        var workspace = CreateCompetition("默认赛事", DefaultCompetitionId);
-        new DataStore(workspace.DirectoryPath).Load();
+        return CreateDefaultDemoWorkspace();
+    }
+
+    public CompetitionWorkspace ResetToDefaultDemoWorkspace(bool deleteOtherCompetitions = true)
+    {
+        Directory.CreateDirectory(ApplicationDirectory);
+        Directory.CreateDirectory(CompetitionsDirectory);
+        SqliteConnection.ClearAllPools();
+
+        if (deleteOtherCompetitions)
+        {
+            foreach (var dir in Directory.GetDirectories(CompetitionsDirectory))
+            {
+                try
+                {
+                    Directory.Delete(dir, recursive: true);
+                }
+                catch
+                {
+                    // Best effort cleanup for local development machines.
+                }
+            }
+        }
+
+        var legacyDatabasePath = Path.Combine(ApplicationDirectory, "basketball.db");
+        if (File.Exists(legacyDatabasePath))
+        {
+            try { File.Delete(legacyDatabasePath); } catch { /* ignore */ }
+        }
+
+        var settings = new CompetitionSettings();
+        File.WriteAllText(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
+        return CreateDefaultDemoWorkspace();
+    }
+
+    public CompetitionWorkspace CreateDefaultDemoWorkspace()
+    {
+        var workspace = CreateCompetition(DefaultDemoData.CompetitionName, DefaultDemoData.CompetitionId);
+        var store = new DataStore(workspace.DirectoryPath);
+        DefaultDemoData.Seed(store);
         SaveCurrentWorkspace(workspace.DirectoryPath);
         return workspace;
     }

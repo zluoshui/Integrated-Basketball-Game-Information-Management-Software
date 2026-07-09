@@ -113,15 +113,29 @@ public partial class MainWindow : Window
 
     private static Process StartApiProcess(int port)
     {
+        var apiExe = FindPublishedApiExe();
+        if (apiExe is not null)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = apiExe,
+                Arguments = $"--urls http://127.0.0.1:{port}",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(apiExe)!
+            };
+            return Process.Start(psi) ?? throw new InvalidOperationException("无法启动已发布的 API 进程。");
+        }
+
         var apiProject = FindApiProject();
         var builtDll = Path.GetFullPath(Path.Combine(
             Path.GetDirectoryName(apiProject)!,
             "bin", "Debug", "net10.0", "BasketballManager.Api.dll"));
 
-        ProcessStartInfo psi;
+        ProcessStartInfo startInfo;
         if (File.Exists(builtDll))
         {
-            psi = new ProcessStartInfo
+            startInfo = new ProcessStartInfo
             {
                 FileName = ResolveDotnet(),
                 Arguments = $"\"{builtDll}\" --urls http://127.0.0.1:{port}",
@@ -132,7 +146,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            psi = new ProcessStartInfo
+            startInfo = new ProcessStartInfo
             {
                 FileName = ResolveDotnet(),
                 Arguments = $"run --project \"{apiProject}\" -c Debug --urls http://127.0.0.1:{port}",
@@ -142,7 +156,18 @@ public partial class MainWindow : Window
             };
         }
 
-        return Process.Start(psi) ?? throw new InvalidOperationException("无法启动 API 进程。");
+        return Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动 API 进程。");
+    }
+
+    private static string? FindPublishedApiExe()
+    {
+        var candidates = new[]
+        {
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\api\BasketballManager.Api.exe")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"api\BasketballManager.Api.exe")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "BasketballManager.Api.exe")),
+        };
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static string ResolveDotnet()
@@ -160,6 +185,6 @@ public partial class MainWindow : Window
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\BasketballManager.Api\BasketballManager.Api.csproj"))
         };
         return candidates.FirstOrDefault(File.Exists)
-            ?? throw new FileNotFoundException("找不到 BasketballManager.Api 项目。");
+            ?? throw new FileNotFoundException("找不到 BasketballManager.Api 项目或已发布的 API 可执行文件。");
     }
 }

@@ -21,3 +21,6 @@ src/BasketballManager.WebUI/dist/
 src/BasketballManager.Api/wwwroot/
 *.js.gz
 *.css.gz
+
+# Local publish output (generated)
+publish/

@@ -1,3 +1,22 @@
+export type AppInfo = {
+  appName: string
+  appNameEn: string
+  version: string
+  primaryAuthor: string
+  secondaryAuthors: string
+  githubUrl: string
+  updateManifestUrl: string
+}
+
+export type UpdateCheckResult = {
+  hasUpdate: boolean
+  currentVersion: string
+  latestVersion?: string | null
+  releaseUrl?: string | null
+  notes?: string | null
+  message: string
+}
+
 export type Competition = { id: string; name: string; directoryPath: string; isCurrent: boolean }
 export type Team = { id: string; name: string; note: string; status: string; playerCount: number }
 export type PlayerField = { id: string; name: string; fieldType: string; isRequired: boolean; displayOrder: number }
@@ -112,7 +131,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; competitionId: string; competitionName: string }>('/api/health'),
+  health: () => request<{ ok: boolean; competitionId: string; competitionName: string; version?: string }>('/api/health'),
+  appInfo: () => request<AppInfo>('/api/app/info'),
+  checkUpdate: () => request<UpdateCheckResult>('/api/app/update-check'),
   competitions: () => request<Competition[]>('/api/competitions'),
   currentCompetition: () => request<Competition>('/api/competitions/current'),
   createCompetition: (name: string, competitionId: string) =>

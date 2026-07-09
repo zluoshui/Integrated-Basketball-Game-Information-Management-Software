@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   api,
+  AppInfo,
   Competition,
   formatClock,
   MatchEvent,
@@ -26,6 +27,7 @@ export default function App() {
   const [competitionMenuOpen, setCompetitionMenuOpen] = useState(false)
   const [competitions, setCompetitions] = useState<Competition[]>([])
   const [current, setCurrent] = useState<Competition | null>(null)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
 
   const [teams, setTeams] = useState<Team[]>([])
   const [players, setPlayers] = useState<Player[]>([])
@@ -62,13 +64,14 @@ export default function App() {
   }
 
   const refreshShell = useCallback(async (options?: { resetSelection?: boolean }) => {
-    const [comps, cur, teamList, fieldList, matchList, playerList] = await Promise.all([
+    const [comps, cur, teamList, fieldList, matchList, playerList, info] = await Promise.all([
       api.competitions(),
       api.currentCompetition(),
       api.teams(),
       api.playerFields(),
       api.matches(),
       api.players(),
+      api.appInfo().catch(() => null),
     ])
     setCompetitions(comps)
     setCurrent(cur)
@@ -76,6 +79,7 @@ export default function App() {
     setFields(fieldList)
     setMatches(matchList)
     setAllPlayers(playerList)
+    if (info) setAppInfo(info)
 
     const pickTeam = () => teamList.find((t) => t.status === '启用')?.id || teamList[0]?.id || ''
     const pickMatch = () => matchList[0]?.id || ''
@@ -310,7 +314,38 @@ export default function App() {
               <span className="nav-label">{label}</span>
             </button>
           ))}
-          <div className="sidebar-footer"><div className="sidebar-footer-text">篮球比赛信息管理<br />Basketball Manager</div></div>
+          <div className="sidebar-footer">
+            <div className="sidebar-footer-brand">
+              <svg className="github-logo" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path fill="currentColor" d="M12 2C6.48 2 2 6.58 2 12.26c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.32.1-2.75 0 0 .84-.27 2.75 1.05A9.3 9.3 0 0 1 12 7.5c.85 0 1.7.12 2.5.34 1.9-1.32 2.74-1.05 2.74-1.05.55 1.43.2 2.49.1 2.75.64.72 1.03 1.64 1.03 2.76 0 3.95-2.34 4.81-4.57 5.07.36.32.68.94.68 1.9 0 1.38-.01 2.49-.01 2.83 0 .26.18.59.69.48A10.03 10.03 0 0 0 22 12.26C22 6.58 17.52 2 12 2z"/>
+              </svg>
+              <div className="sidebar-footer-text">
+                <div>GitHub 项目地址</div>
+                <a
+                  className="github-link"
+                  href={appInfo?.githubUrl || 'https://github.com/example/basketball-manager'}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {(appInfo?.githubUrl || 'https://github.com/example/basketball-manager').replace(/^https?:\/\//, '')}
+                </a>
+              </div>
+            </div>
+            <button
+              className="btn btn-ghost sidebar-update-btn"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                withToast(async () => {
+                  const result = await api.checkUpdate()
+                  showToast(result.message)
+                })
+              }}
+            >
+              检查更新
+            </button>
+          </div>
         </aside>
 
         <main className="content">

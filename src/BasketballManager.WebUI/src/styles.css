@@ -294,6 +294,43 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sidebar-footer-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.github-logo {
+  color: #94a3b8;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.github-link {
+  color: #64748b;
+  text-decoration: none;
+  word-break: break-all;
+}
+.github-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.sidebar-update-btn {
+  width: 100%;
+  min-height: 34px;
+  font-size: 12px;
+}
+.app.sidebar-collapsed .sidebar-footer-text,
+.app.sidebar-collapsed .sidebar-update-btn {
+  display: none;
+}
+.app.sidebar-collapsed .sidebar-footer {
+  align-items: center;
+}
+.app.sidebar-collapsed .sidebar-footer-brand {
+  justify-content: center;
 }
 .sidebar-toggle svg {
   display: block;

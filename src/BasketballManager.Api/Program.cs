@@ -51,8 +51,41 @@ app.MapGet("/api/health", (AppSession session) => session.Read(s => new
 {
     ok = true,
     competitionId = s.Workspace.Manifest.CompetitionId,
-    competitionName = s.Workspace.Manifest.Name
+    competitionName = s.Workspace.Manifest.Name,
+    version = AppInfo.Version,
+    appName = AppInfo.AppName
 }));
+
+app.MapGet("/api/app/info", () => Results.Ok(new
+{
+    appName = AppInfo.AppName,
+    appNameEn = AppInfo.AppNameEn,
+    version = AppInfo.Version,
+    primaryAuthor = AppInfo.PrimaryAuthor,
+    secondaryAuthors = AppInfo.SecondaryAuthors,
+    githubUrl = AppInfo.GitHubRepositoryUrl,
+    updateManifestUrl = AppInfo.UpdateManifestUrl
+}));
+
+app.MapGet("/api/app/update-check", async (CancellationToken cancellationToken) =>
+{
+    var result = await UpdateChecker.CheckAsync(cancellationToken);
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/app/reset-demo", (AppSession session) =>
+{
+    try
+    {
+        return session.Write(s =>
+        {
+            var workspace = s.WorkspaceManager.ResetToDefaultDemoWorkspace();
+            s.SwitchWorkspace(workspace, saveCurrent: false);
+            return Results.Ok(ApiMapping.ToDto(s.Workspace, true));
+        });
+    }
+    catch (Exception ex) { return Results.BadRequest(new ApiError(ex.Message)); }
+});
 
 app.MapGet("/api/competitions", (AppSession session) => session.Read(s =>
 {
@@ -119,7 +152,7 @@ app.MapDelete("/api/competitions/{competitionId}", (string competitionId, AppSes
             if (currentId.Equals(competitionId, StringComparison.OrdinalIgnoreCase))
             {
                 var next = s.WorkspaceManager.ListImportedWorkspaces().FirstOrDefault()
-                    ?? s.WorkspaceManager.CreateCompetition("默认赛事", "default001");
+                    ?? s.WorkspaceManager.CreateDefaultDemoWorkspace();
                 s.SwitchWorkspace(next, saveCurrent: false);
                 return Results.Ok(new { deleted = competitionId, current = ApiMapping.ToDto(s.Workspace, true) });
             }

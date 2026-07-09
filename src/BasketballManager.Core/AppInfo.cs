@@ -27,7 +27,7 @@ public static class UpdateChecker
 {
     private static readonly HttpClient Http = new()
     {
-        Timeout = TimeSpan.FromSeconds(8)
+        Timeout = TimeSpan.FromSeconds(20)
     };
 
     public static async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)

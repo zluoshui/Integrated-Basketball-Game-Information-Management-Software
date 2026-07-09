@@ -32,6 +32,7 @@ dotnet list .\src\BasketballManager\BasketballManager.csproj package --vulnerabl
 WPF 启动脚本在构建前可清理对应项目的 `obj\<Configuration>\<TargetFramework>`，避免陈旧的 `App.g.cs`、`MainWindow.g.cs` 等 XAML 生成文件路径导致编译失败。
 公开发布前确认 `src/BasketballManager.Core/AppInfo.cs` 与根目录 `update.json` 指向同一个 GitHub 仓库和 Release 标签，否则“检查更新”会访问错误清单或错误发布页。
 `update.json` 使用 camelCase 字段（`latestVersion`、`releaseUrl`、`notes`）；后端更新检查必须按大小写不敏感方式读取，避免发布清单可访问但被判定为格式错误。
+更新检查会访问 GitHub raw 清单，首次联网可能较慢；后端请求超时不应低于 20 秒。
 
 ## 常见开发注意事项
 

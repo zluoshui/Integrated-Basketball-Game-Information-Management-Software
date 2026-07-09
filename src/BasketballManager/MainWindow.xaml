@@ -172,7 +172,7 @@
                         <TextBlock Text="每节分钟" />
                         <TextBox x:Name="PeriodLengthBox" Width="80" Text="10" />
                         <Button Content="创建比赛" Click="CreateMatch_Click" />
-                        <TextBlock Text="当前比赛" />
+                        <TextBlock Text="准备比赛" />
                         <ComboBox x:Name="MatchCombo" DisplayMemberPath="DisplayName" SelectionChanged="MatchCombo_SelectionChanged" Width="280" />
                     </WrapPanel>
                     <WrapPanel Grid.Row="2" Margin="0,8,0,8">
@@ -222,9 +222,17 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <UniformGrid Grid.Row="0" Columns="4">
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                        <TextBlock Text="记分比赛" />
+                        <ComboBox x:Name="ScoreboardMatchCombo"
+                                  DisplayMemberPath="DisplayName"
+                                  Width="280"
+                                  SelectionChanged="ScoreboardMatchCombo_SelectionChanged" />
+                    </WrapPanel>
+                    <UniformGrid Grid.Row="1" Columns="4">
                         <Border BorderBrush="#DDD" BorderThickness="1" Padding="12" Margin="4">
                             <StackPanel>
                                 <TextBlock Text="倒计时" FontSize="16" />
@@ -251,7 +259,7 @@
                             </StackPanel>
                         </Border>
                     </UniformGrid>
-                    <StackPanel Grid.Row="1" Margin="0,8">
+                    <StackPanel Grid.Row="2" Margin="0,8">
                         <WrapPanel>
                             <Button x:Name="StartClockButton" Content="开始" Click="StartClock_Click" />
                             <Button x:Name="PauseClockButton" Content="暂停" Click="PauseClock_Click" />
@@ -296,7 +304,7 @@
                         </WrapPanel>
                     </StackPanel>
                     <DataGrid x:Name="StatsGrid"
-                              Grid.Row="2"
+                              Grid.Row="3"
                               AutoGenerateColumns="True"
                               IsReadOnly="True" />
                 </Grid>

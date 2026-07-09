@@ -132,13 +132,27 @@ public partial class MainWindow : Window
         }
     }
 
-    private Match? CurrentMatch => MatchCombo.SelectedItem as Match;
+    private Match? PrepMatch => MatchCombo.SelectedItem as Match;
+    private Match? ScoreboardMatch => ScoreboardMatchCombo.SelectedItem as Match;
+    private Match? LogMatch =>
+        MatchesHistoryGrid.SelectedItem is MatchHistoryRow row
+            ? FindMatch(row.比赛ID)
+            : null;
     private Player? SelectedPlayer => PlayersGrid.SelectedItem as Player;
     private Team? SelectedTeam => TeamsGrid.SelectedItem as Team;
     private Player? ActivePlayer => _selectedOnCourtPlayer;
     private RosterRow? SelectedRoster => RostersGrid.SelectedItem as RosterRow;
     private EventRow? SelectedEvent => EventsGrid.SelectedItem as EventRow;
     private IReadOnlyList<MatchHistoryRow> CheckedMatchHistoryRows => (MatchesHistoryGrid.ItemsSource as IEnumerable<MatchHistoryRow>)?.Where(row => row.导出).ToList() ?? [];
+
+    private Match? FindMatch(Guid? id) =>
+        id is null || id == Guid.Empty ? null : _data.Matches.FirstOrDefault(match => match.Id == id.Value);
+
+    private void PreserveComboSelection(ComboBox combo, Guid? preferredId)
+    {
+        var matches = (combo.ItemsSource as IEnumerable<Match>)?.ToList() ?? [];
+        combo.SelectedItem = matches.FirstOrDefault(match => match.Id == preferredId) ?? matches.FirstOrDefault();
+    }
 
     private void RefreshAll()
     {
@@ -195,15 +209,20 @@ public partial class MainWindow : Window
 
     private void RefreshMatches()
     {
-        var selectedId = CurrentMatch?.Id;
-        MatchCombo.ItemsSource = _data.Matches.OrderByDescending(match => match.CreatedAt).ToList();
-        MatchCombo.SelectedItem = _data.Matches.FirstOrDefault(match => match.Id == selectedId) ?? _data.Matches.LastOrDefault();
+        var prepSelectedId = PrepMatch?.Id;
+        var scoreboardSelectedId = ScoreboardMatch?.Id;
+        var orderedMatches = _data.Matches.OrderByDescending(match => match.CreatedAt).ToList();
+        MatchCombo.ItemsSource = orderedMatches;
+        ScoreboardMatchCombo.ItemsSource = orderedMatches;
+        PreserveComboSelection(MatchCombo, prepSelectedId);
+        PreserveComboSelection(ScoreboardMatchCombo, scoreboardSelectedId);
         RefreshMatchHistory();
     }
 
     private void RefreshMatchHistory()
     {
         var checkedIds = CheckedMatchHistoryRows.Select(row => row.比赛ID).ToHashSet();
+        var selectedLogId = LogMatch?.Id;
         _isRefreshingMatchHistory = true;
         try
         {
@@ -223,7 +242,7 @@ public partial class MainWindow : Window
                 })
                 .ToList();
             MatchesHistoryGrid.ItemsSource = rows;
-            MatchesHistoryGrid.SelectedItem = rows.FirstOrDefault(row => row.比赛ID == CurrentMatch?.Id);
+            MatchesHistoryGrid.SelectedItem = rows.FirstOrDefault(row => row.比赛ID == selectedLogId) ?? rows.FirstOrDefault();
         }
         finally
         {
@@ -233,14 +252,10 @@ public partial class MainWindow : Window
 
     private void RefreshRosters()
     {
-        var match = CurrentMatch;
+        var match = PrepMatch;
         if (match is null)
         {
             RostersGrid.ItemsSource = null;
-            HomeOnCourtList.ItemsSource = null;
-            AwayOnCourtList.ItemsSource = null;
-            SubstitutePlayerCombo.ItemsSource = null;
-            _selectedOnCourtPlayer = null;
             return;
         }
 
@@ -262,12 +277,11 @@ public partial class MainWindow : Window
             .ToList();
 
         RefreshRosterCandidates();
-        RefreshActivePlayers();
     }
 
     private void RefreshRosterCandidates()
     {
-        var match = CurrentMatch;
+        var match = PrepMatch;
         var side = RosterSideCombo.SelectedItem is TeamSide selectedSide ? selectedSide : TeamSide.Home;
         var sideTeamId = side == TeamSide.Home ? match?.HomeTeamId : match?.AwayTeamId;
         RosterPlayerCombo.ItemsSource = _data.Players
@@ -280,7 +294,7 @@ public partial class MainWindow : Window
 
     private void RefreshActivePlayers()
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             HomeOnCourtList.ItemsSource = null;
@@ -319,7 +333,7 @@ public partial class MainWindow : Window
 
     private void RefreshSubstituteCandidates()
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         var selected = _selectedOnCourtPlayer;
         if (match is null || selected is null)
         {
@@ -353,7 +367,7 @@ public partial class MainWindow : Window
 
     private void RefreshScoreboard()
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             TimerText.Text = "00:00";
@@ -363,6 +377,7 @@ public partial class MainWindow : Window
             FoulTimeoutText.Text = "0:0 / 0:0";
             StatsGrid.ItemsSource = null;
             RefreshScoreboardControls(null);
+            RefreshActivePlayers();
             return;
         }
 
@@ -375,6 +390,7 @@ public partial class MainWindow : Window
         FoulTimeoutText.Text = $"全场犯规 {projection.HomeFouls}:{projection.AwayFouls} / 暂停 {projection.HomeTimeouts}:{projection.AwayTimeouts} / 本节犯规 {currentPeriodStats?.HomeFouls ?? 0}:{currentPeriodStats?.AwayFouls ?? 0}";
         StatsGrid.ItemsSource = projection.PlayerStats;
         RefreshScoreboardControls(match);
+        RefreshActivePlayers();
     }
 
     private void RefreshScoreboardControls(Match? match)
@@ -410,7 +426,7 @@ public partial class MainWindow : Window
 
     private void RefreshEvents()
     {
-        var match = CurrentMatch;
+        var match = LogMatch;
         if (match is null)
         {
             TeamStatsGrid.ItemsSource = null;
@@ -1153,7 +1169,7 @@ public partial class MainWindow : Window
 
     private void RemoveRoster_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = PrepMatch;
         var selected = SelectedRoster;
         if (match is null || selected is null)
         {
@@ -1190,14 +1206,12 @@ public partial class MainWindow : Window
         _data.Rosters.Remove(roster);
         AddRosterAuditEvent(match, roster.Side, audit, $"移出名单：{selected.球员}，原号码 {selected.号码}，原首发 {FormatBool(selected.首发)}");
         SaveData();
-        RefreshRosters();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterPrepChange();
     }
 
     private void SaveRosterEntry(MatchRoster? existingRoster)
     {
-        var match = CurrentMatch;
+        var match = PrepMatch;
         var player = RosterPlayerCombo.SelectedItem as Player;
         if (match is null || player is null)
         {
@@ -1286,9 +1300,7 @@ public partial class MainWindow : Window
         }
 
         SaveData();
-        RefreshRosters();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterPrepChange();
     }
 
     private RosterAudit? PrepareRosterAudit(Match match, string operation)
@@ -1389,35 +1401,79 @@ public partial class MainWindow : Window
     private void MatchCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshRosters();
+    }
+
+    private void ScoreboardMatchCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
         RefreshScoreboard();
-        RefreshEvents();
-        RefreshMatchHistory();
     }
 
     private void MatchesHistoryGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        SelectMatchFromHistory();
+        if (_isRefreshingMatchHistory)
+        {
+            return;
+        }
+
+        RefreshEvents();
     }
 
     private void MatchesHistoryGrid_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        SelectMatchFromHistory();
+        if (_isRefreshingMatchHistory)
+        {
+            return;
+        }
+
+        RefreshEvents();
     }
 
-    private void SelectMatchFromHistory()
+    private void RefreshRelatedViewsAfterPrepChange()
     {
-        if (_isRefreshingMatchHistory || MatchesHistoryGrid.SelectedItem is not MatchHistoryRow row)
+        RefreshRosters();
+        if (ScoreboardMatch is not null && PrepMatch is not null && ScoreboardMatch.Id == PrepMatch.Id)
         {
-            return;
+            RefreshScoreboard();
         }
 
-        var match = _data.Matches.FirstOrDefault(item => item.Id == row.比赛ID);
-        if (match is null || CurrentMatch?.Id == match.Id)
+        if (LogMatch is not null && PrepMatch is not null && LogMatch.Id == PrepMatch.Id)
         {
-            return;
+            RefreshEvents();
+            RefreshMatchHistory();
+        }
+        else
+        {
+            RefreshMatchHistory();
+        }
+    }
+
+    private void RefreshRelatedViewsAfterScoreboardChange()
+    {
+        RefreshScoreboard();
+        if (PrepMatch is not null && ScoreboardMatch is not null && PrepMatch.Id == ScoreboardMatch.Id)
+        {
+            RefreshRosters();
         }
 
-        MatchCombo.SelectedItem = match;
+        if (LogMatch is not null && ScoreboardMatch is not null && LogMatch.Id == ScoreboardMatch.Id)
+        {
+            RefreshEvents();
+            RefreshMatchHistory();
+        }
+        else
+        {
+            RefreshMatchHistory();
+        }
+    }
+
+    private void RefreshRelatedViewsAfterLogChange()
+    {
+        RefreshEvents();
+        RefreshMatchHistory();
+        if (ScoreboardMatch is not null && LogMatch is not null && ScoreboardMatch.Id == LogMatch.Id)
+        {
+            RefreshScoreboard();
+        }
     }
 
     private void OnCourtPlayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1449,7 +1505,7 @@ public partial class MainWindow : Window
 
     private void StartClock_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             return;
@@ -1476,12 +1532,12 @@ public partial class MainWindow : Window
         match.IsClockRunning = true;
         match.LastClockUpdateUtc = DateTime.UtcNow;
         SaveData();
-        RefreshScoreboard();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void PauseClock_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             return;
@@ -1501,12 +1557,12 @@ public partial class MainWindow : Window
             match.Status = MatchStatus.Paused;
         }
         SaveData();
-        RefreshScoreboard();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void ResetClock_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             return;
@@ -1536,12 +1592,12 @@ public partial class MainWindow : Window
             ? MatchStatus.NotStarted
             : MatchStatus.Paused;
         SaveData();
-        RefreshScoreboard();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void NextPeriod_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             return;
@@ -1593,13 +1649,12 @@ public partial class MainWindow : Window
         match.Status = MatchStatus.Interval;
         AddClockControlEvent(match, $"提前从第 {previousPeriod} 节进入第 {match.CurrentPeriod} 节，原剩余 {FormatSeconds(previousRemaining)}");
         SaveData();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void EndMatch_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             return;
@@ -1627,7 +1682,7 @@ public partial class MainWindow : Window
         match.Status = MatchStatus.Finished;
         match.EndedAt ??= DateTime.UtcNow;
         SaveData();
-        RefreshScoreboard();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void AddClockControlEvent(Match match, string note)
@@ -1704,7 +1759,7 @@ public partial class MainWindow : Window
 
     private void UpdateClockFromElapsed()
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match?.IsClockRunning != true || match.LastClockUpdateUtc is null)
         {
             return;
@@ -1746,7 +1801,7 @@ public partial class MainWindow : Window
 
     private void SubstitutePlayer_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         var outgoingPlayer = ActivePlayer;
         var incomingPlayer = SubstitutePlayerCombo.SelectedItem as Player;
         if (match is null || outgoingPlayer is null || incomingPlayer is null)
@@ -1805,14 +1860,12 @@ public partial class MainWindow : Window
         _selectedOnCourtPlayer = incomingPlayer;
         EventNoteBox.Text = "";
         SaveData();
-        RefreshRosters();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void RecordTimeoutRequest()
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         if (match is null)
         {
             MessageBox.Show("请先选择比赛。", "校验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1847,13 +1900,12 @@ public partial class MainWindow : Window
 
         EventNoteBox.Text = "";
         SaveData();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void RecordEvent(MatchEventKind kind, int points = 0)
     {
-        var match = CurrentMatch;
+        var match = ScoreboardMatch;
         var player = ActivePlayer;
         if (match is null || player is null)
         {
@@ -1889,13 +1941,12 @@ public partial class MainWindow : Window
 
         EventNoteBox.Text = "";
         SaveData();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterScoreboardChange();
     }
 
     private void UndoLastEvent_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = LogMatch;
         if (match is null)
         {
             return;
@@ -1937,7 +1988,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var match = CurrentMatch;
+        var match = LogMatch;
         var item = match is null ? null : _data.Events.FirstOrDefault(item => item.MatchId == match.Id && item.Id == selected.事件ID);
         if (item is null)
         {
@@ -1975,13 +2026,12 @@ public partial class MainWindow : Window
         item.VoidedBy = VoidOperatorBox.Text.Trim();
         VoidReasonBox.Text = "";
         SaveData();
-        RefreshScoreboard();
-        RefreshEvents();
+        RefreshRelatedViewsAfterLogChange();
     }
 
     private void ExportCsv_Click(object sender, RoutedEventArgs e)
     {
-        var match = CurrentMatch;
+        var match = LogMatch;
         if (match is null)
         {
             MessageBox.Show("请先选择要导出的比赛。", "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -2037,7 +2087,7 @@ public partial class MainWindow : Window
     {
         var selectedMatchIds = CheckedMatchHistoryRows.Select(row => row.比赛ID).ToHashSet();
         var matches = selectedMatchIds.Count == 0
-            ? CurrentMatch is null ? new List<Match>() : [CurrentMatch]
+            ? LogMatch is null ? new List<Match>() : [LogMatch]
             : _data.Matches.Where(match => selectedMatchIds.Contains(match.Id)).ToList();
         if (matches.Count == 0)
         {
